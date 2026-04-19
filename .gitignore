@@ -2,3 +2,4 @@
 /.tts
 .vscode/settings.json
 GEMINI.md
+dist/.tts/
