@@ -24,22 +24,21 @@ local _SEARCHING = false
 -- onload stuff
 function onLoad(save_state)
     promise.WaitFrames(35, function()
-        initializeTableComponents()
 
+        initializeTableComponents()
+        local table = Tables.getTable()
+
+        print("Table loading complete")
+
+        if table ~= "Table_RPG" then return end
         local newBoss = utils.getObjectByTag(OBJECT_TAGS.boss_token)
-        utils.replaceObjectInBagByTag(COMPONENTS.npc_commander, OBJECT_TAGS.boss_token, newBoss)
+        utils.swapObjectInBagByTag(COMPONENTS.npc_commander, OBJECT_TAGS.boss_token, newBoss)
 
         local newMonster = utils.getObjectByTag(OBJECT_TAGS.monster_token)
-        utils.replaceObjectInBagByTag(COMPONENTS.npc_commander, OBJECT_TAGS.monster_token, newMonster)
+        utils.swapObjectInBagByTag(COMPONENTS.npc_commander, OBJECT_TAGS.monster_token, newMonster)
 
         local newNote = utils.getObjectByTag(OBJECT_TAGS.clever_notecard)
-        utils.replaceObjectInBagByTag(COMPONENTS.npc_commander, OBJECT_TAGS.clever_notecard, newNote)
-
-
-        COMPONENTS.movementObjects = utils.getObjectsByTag(OBJECT_TAGS.movement_measurement)
-        for _, obj in pairs(COMPONENTS.movementObjects) do
-            movement_measurement.create(obj)
-        end
+        utils.swapObjectInBagByTag(COMPONENTS.npc_commander, OBJECT_TAGS.clever_notecard, newNote)
     end)
 end
 
@@ -78,7 +77,6 @@ function onObjectPickUp(player_color, pick_obj)
     if pick_obj.hasTag(OBJECT_TAGS.movement_measurement) then
         if movement_measurement.measuring[pick_obj.guid] == nil then
             movement_measurement.create(pick_obj)
-            table.insert(COMPONENTS.movementObjects, pick_obj)
         end
         movement_measurement.onPickUp(pick_obj, player_color)
     end
