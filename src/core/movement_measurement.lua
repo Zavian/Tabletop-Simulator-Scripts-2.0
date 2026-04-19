@@ -38,7 +38,7 @@ function MovementMeasurement.createMoveToken(my_token, player_color, show_only_t
         thickness = 0.1,
         type = 2
     }
-    local startloc = my_token.getPosition()
+    local startloc = my_token.getPosition() + Vector(0, 0.1, 0)
     local hitList =
         Physics.cast(
         {
@@ -64,12 +64,18 @@ function MovementMeasurement.createMoveToken(my_token, player_color, show_only_t
     local spawnparams = {
         type = "Custom_Token",
         position = startloc,
-        rotation = {x = 0, y = tokenRot, z = 0},
+        rotation = {x = 0, y = 0, z = 0},
         scale = tokenScale,
         sound = false
     }
 
     local move_token = spawnObject(spawnparams)
+    move_token.ignore_fog_of_war = true
+
+    move_token.setSnapPoints({
+        { position = {0,0,0} }
+    })
+
     my_token.setVar("moveToken", move_token)
 
 
@@ -118,8 +124,8 @@ local rangeOrder = {"veryClose", "close", "far"}
 
 function onLoad()
     measuredObject = self.getVar("measuredObject")
-    drawCircles("veryClose")
-    currentRange = "veryClose"
+    drawCircles("far")
+    currentRange = "far"
 end
 
 function onUpdate()
@@ -166,10 +172,11 @@ function onUpdate()
     end
 
     -- Only redraw if the range changed
-    if newRange ~= currentRange then
-        currentRange = newRange
-        drawCircles(currentRange)
-    end
+    -- if newRange ~= currentRange then
+    --     currentRange = newRange
+    --     drawCircles(currentRange)
+    -- end
+    -- drawCircles('far')
 end
 
 function drawCircles(maxRange)
