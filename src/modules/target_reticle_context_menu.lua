@@ -92,8 +92,8 @@ function contextMenuFunction(player_color, tagToPull, varName)
         utils.appendData(caller,
             {
                 [varName] = {
-                    position = pos,
-                    rotation = rot
+                    position = utils.roundVector(pos),
+                    rotation = utils.roundVector(rot)
                 }
             }
         )

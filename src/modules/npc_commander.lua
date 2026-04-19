@@ -23,11 +23,30 @@ function onload()
     initializeSelfUI()
 
     events.subscribe(events.EVENT_NAMES.parse_monster_data, "ParseMonsterData")
+
     events.subscribe(events.EVENT_NAMES.create_json_note, "createNote")
 
 
     target_reticle.create("Mob Spawn Reticle", "monsterSpawnData", OBJECT_TAGS.monster_token)
     target_reticle.create("Save Card Reticle", "saveCardData", OBJECT_TAGS.clever_notecard)
+    self.addContextMenuItem("Update token", function()
+        Player["Black"].showOptionsDialog("Select tag", {OBJECT_TAGS.boss_token, OBJECT_TAGS.monster_token, OBJECT_TAGS.clever_notecard}, 1,
+        function (selected_tag, index, player_color)
+            Player["Black"].showInputDialog("Pastebin link",
+                function (text, player_color)
+                    utils.getOnlineCode(text, function(script)
+                        if script then
+                            log(script)
+                            utils.replaceObjectInBagByTag(self, selected_tag, function(spawned_object)
+                                spawned_object.setLock(true)
+                                spawned_object.setLuaScript(script)
+                            end)
+                        end
+                    end)
+                end)
+        end)
+    end)
+    
 end
 
 function initializeSelfUI() 
@@ -96,7 +115,7 @@ function initializeSelfUI()
             value = debug and "15" or ""
         },
         {
-            -- black name						[4]
+            -- image name						[4]
             name = "image",
             function_owner = self,
             label = " ",
@@ -112,7 +131,7 @@ function initializeSelfUI()
         },
         {
             -- numberToCreate input					[5]
-            name = "number_to_create",
+            name = "number",
             function_owner = self,
             label = "NMB",
             position = {0.03, 0.4, 0.73},
@@ -332,7 +351,7 @@ function manageInput(input_name, value)
         "stress",
         "difficulty",
         "image",
-        "number_to_create",
+        "number",
         "side"
     }
 
@@ -384,6 +403,7 @@ end
 function setName(params)
     if params == nil or params.input == "" then return end
     self.editInput({index = 0, value = params.input})
+    utils.appendData(self, {name = params.input}, "exportData")
 end
 
 -- hp ------------------------------------------------
@@ -401,19 +421,21 @@ function getHP(literal)
 
     return tonumber(hp)
 end
-function Injector_setMaxHP(params)
+function setHP(params)
     if params == nil or params.input == "" then return end
-    self.editInput({index = 2, value = params.input})
+    self.editInput({index = 1, value = params.input})
+    utils.appendData(self, {hp = params.input}, "exportData")
 end
 
 -- ac ------------------------------------------------
-function getAC()
+function getDiff()
     local input = self.getInputs()[4].value
     return input
 end
-function setAC(params)
+function setDiff(params)
     if params == nil or params.input == "" then return end
     self.editInput({index = 3, value = params.input})
+    utils.appendData(self, {difficulty = params.input}, "exportData")
 end
 
 -- movement ------------------------------------------
@@ -426,30 +448,50 @@ function setMovement(params)
     self.editInput({index = 4, value = params.input})
 end
 
+-- stress --------------------------------------------
+function getStress()
+    local input = self.getInputs()[3].value
+    return input
+end
+function setStress(params)
+    if params == nil or params.input == "" then return end
+    self.editInput({index = 2, value = params.input})
+    utils.appendData(self, {stress = params.input}, "exportData")
+end
+
 -- size ----------------------------------------------
-function getSize(getData)
+function getSize(get_scale)
     local buttons = self.getButtons()[1]
-    if not getData then
+    if not get_scale then
         return buttons.label
-    else
-        if not getBossCheckbox() then
-            local scale = {}
-            scale["Small"] = 0.17
-            scale["Medium"] = 0.30
-            scale["Large"] = 0.55
-            scale["Huge"] = 0.90
-            scale["Gargantuan"] = 1.20
-            return scale[buttons.label]
-        else
-            local scale = {}
-            scale["Small"] = 0.53
-            scale["Medium"] = 0.78
-            scale["Large"] = 1.45
-            scale["Huge"] = 2.40
-            scale["Gargantuan"] = 3.30
-            return scale[buttons.label]
-        end
     end
+
+    local scale = {}
+    scale["Small"] = 0.53
+    scale["Medium"] = 0.78
+    scale["Large"] = 1.45
+    scale["Huge"] = 2.40
+    scale["Gargantuan"] = 3.30
+    return scale[buttons.label]
+
+    -- if not getBossCheckbox() then
+    --     local scale = {}
+    --     scale["Small"] = 0.17
+    --     scale["Medium"] = 0.30
+    --     scale["Large"] = 0.55
+    --     scale["Huge"] = 0.90
+    --     scale["Gargantuan"] = 1.20
+    --     return scale[buttons.label]
+    -- else
+    --     local scale = {}
+    --     scale["Small"] = 0.53
+    --     scale["Medium"] = 0.78
+    --     scale["Large"] = 1.45
+    --     scale["Huge"] = 2.40
+    --     scale["Gargantuan"] = 3.30
+    --     return scale[buttons.label]
+    -- end
+    
 end
 
 function switch_size(obj, player_clicker_color, alt_click)
@@ -479,16 +521,13 @@ function switch_size(obj, player_clicker_color, alt_click)
         }
     )
 
-    utils.appendData(self, {
-        exportData = {
-            size = sizes[c]
-        }
-    })
+    utils.appendData(self, {size = sizes[c]}, "exportData")
 end
 
 function setSize(params)
     if params == nil or params.input == "" then return end
     self.editButton({index = 0, label = params.input})
+    utils.appendData(self, {size = params.input}, "exportData")
 end
 
 -- boss checkbox -------------------------------------
@@ -532,9 +571,7 @@ function toggleIsBoss(params)
         self.editButton({index = 3, tooltip = "false"})
     end
 
-    utils.appendData(self, {
-        boss = params.input
-    }, "exportData")
+    utils.appendData(self, { boss = params.input }, "exportData")
 end
 
 -- side ----------------------------------------------
@@ -549,11 +586,7 @@ function switch_sides()
     self.editButton({index = 4, color = _states[_side].color})
     self.editButton({index = 4, label = _side:gsub("^%l", string.upper)})
 
-    utils.appendData(self, {
-        exportData = {
-            side = _side
-        }
-    })
+    utils.appendData(self, {side = _side}, "exportData")
 end
 
 function setSide(params)
@@ -563,11 +596,14 @@ function setSide(params)
     _side = side
     self.editButton({index = 4, color = _states[_side].color})
     self.editButton({index = 4, label = _side:gsub("^%l", string.upper)})
+
+    utils.appendData(self, {side = _side}, "exportData")
 end
 
 -- numberToCreate -------------------------------------
 function setNumberToCreate(params)
     self.editInput({index = 5, value = params.input})
+    utils.appendData(self, { number = params.input }, "exportData")
 end
 
 function getNumberToCreate()
@@ -579,25 +615,42 @@ function getNumberToCreate()
     end
 end
 
+-- Image ----------------------------------------------
+function getImage()
+    local input = self.getInputs()[5]
+    return input.value
+end
+
+function setImage(image)
+    self.editInput({index = 4, value = image})
+    utils.appendData(self, {image = image}, "exportData")
+end
+
 -- jsonImport ----------------------------------------
 function getJsonImport()
     local input = self.getInputs()[7]
     return input.value
 end
+
+
 function parseJson(params)
     local json = getJsonImport()
-    local data = JSON.decode(json)
+    parseData({input = json})
+end
 
+function parseData(params)
+    local data = JSON.decode(params.input)
     setName({input = data.name})
     -- setINI(({input = data.ini}))
-    Injector_setMaxHP(({input = data.hp}))
-    setAC(({input = data.ac}))
-    setMovement(({input = data.mov}))
+    setHP(({input = data.hp}))
+    setStress(({input = data.stress}))
+    setDiff(({input = data.difficulty}))
     setSize({input = data.size})
     setSide({input = data.side})
-    if data.image then
+    setNumberToCreate({input = data.number or 1})
+    if data.image and data.image ~= "" then
         toggleIsBoss({input = true})
-        self.setDescription(data.image)
+        setImage(data.image)
     else
         toggleIsBoss({input = false})
     end
@@ -615,25 +668,10 @@ end
 
 --- @param args MonsterData
 function ParseMonsterData(args) 
-    debug("Event: " .. events.Event.parse_monster_data)
+    _debug("Event " .. events.EVENT_NAMES.parse_monster_data .. " triggered", "ParseMonsterData")
 
     local json = args[1]
-    local data = JSON.decode(json)
-
-    setName({input = data.name})
-    -- setINI(({input = data.ini}))
-    Injector_setMaxHP(({input = data.hp}))
-    setAC(({input = data.ac}))
-    setMovement(({input = data.mov}))
-    setSize({input = data.size})
-    setSide({input = data.side})
-
-    if data.image then
-        toggleIsBoss({input = true})
-        self.setDescription(data.image)
-    else
-        toggleIsBoss({input = false})
-    end
+    parseData({input = json})
 end
 
 function create_json_note(obj, player_clicker_color, alt_click)
@@ -646,10 +684,45 @@ function create_json_note(obj, player_clicker_color, alt_click)
         difficulty = data.difficulty,
         size = data.size or "Medium",
         image = data.image or nil,
-        side = data.side or "enemy",
+        side = data.side or "Enemy",
+        number = data.number
     }
     local json = JSON.encode(vars)
-    events.broadcast(events.Event.create_json_note, json)
+    events.broadcast(events.EVENT_NAMES.create_json_note, json)
+end
+
+function createNote(args)
+    local json = args[1]
+    local data = JSON.decode(json)
+
+    log(getBossCheckbox())
+    log(data.boss)
+    log(data.image)
+
+    if not getBossCheckbox() then
+        data.boss = false
+        data.image = nil
+        log("no boss")
+        log(data)
+    end
+
+    if data.image == "" then
+        data.image = nil
+    end
+
+    
+    local obj = utils.useFromBag(self, function(spawned_object)
+        local name = utils.findBlackName(data.name)
+        if name == nil then
+            name = data.name
+        end
+        spawned_object.setName(name)
+        spawned_object.setDescription(JSON.encode(data))
+        spawned_object.setColorTint(_states[_side].bright)
+    end, nil, OBJECT_TAGS.clever_notecard, "saveCardData")
+    promise.WaitUntilResting(obj, function()
+        obj.call("setData", {})
+    end)
 end
 
 function create_npc(obj, player_clicker_color, alt_click)
@@ -706,78 +779,132 @@ local function initialize_name_pools()
     shuffle(available_paired_names)
 end
 
+    
 function creation_coroutine()
     local data = utils.getData(self).exportData
-    -- Ensure number_to_create is a number, with a safe fallback.
-    local numberToCreate = tonumber(data.number_to_create) or 1
+    local numberToCreate = tonumber(data.number) or 1
     local object_tag = data.boss and OBJECT_TAGS.boss_token or OBJECT_TAGS.monster_token
     
     math.randomseed(os.time() + os.clock())
-
     initialize_name_pools()
 
-    -- This variable will hold the second name of a pair for the next iteration.
     local pending_pair_name = nil
-
-    -- CHANCE-BASED LOGIC SETUP --
-    -- Set the probability of choosing a pair.
+    
+    -- Chance Logic
     local pair_chance = 0.10
-    if numberToCreate == 2 then
-        -- Special case: If creating exactly two, make the chance of them being a pair very high.
-        pair_chance = 0.9 -- 90% chance.
-    end
+    if numberToCreate == 2 then pair_chance = 0.9 end
 
-    print("must create " .. numberToCreate)
+    -- SPACING SETTINGS --
+    local tokenScale = getSize(true) 
+    local spawnRadius = 6 
+    local minDistance = tokenScale * 1.5 
+    
+    -- We store OFFSETS here (e.g. {x=2, y=0, z=1}), not absolute world positions
+    local assignedOffsets = {} 
 
     for i = 1, numberToCreate do
         
-        utils.useFromBag(self, function(spawned_object)
-            local image = data.image
-            spawned_object.use_hands = true
+        -- CALCULATE OFFSET --
+        local finalOffset = {x=0, y=0, z=0} -- Default to exact center if logic fails
+        local attempts = 0
+        local foundSpot = false
 
-            local instanceData = {}
-            for k, v in pairs(data) do
-                instanceData[k] = v
-            end
+        while not foundSpot and attempts < 50 do
+            attempts = attempts + 1
             
-            -- NAME GENERATION LOGIC --
-            local current_name
-            
-            if pending_pair_name then
-                -- A pending name from a pair must be used.
-                current_name = pending_pair_name
-                pending_pair_name = nil -- Reset for the next iteration.
-            else
-                -- Decide whether to start a new pair or use a regular name.
-                -- Conditions to use a pair:
-                -- 1. There is room for the second part (i < numberToCreate).
-                -- 2. There are paired names available.
-                local can_use_pair = (i < numberToCreate) and (#available_paired_names > 0)
+            -- Random Math
+            local angle = math.random() * 2 * math.pi
+            local dist = math.sqrt(math.random()) * spawnRadius 
+
+            local candidateOffset = {
+                x = math.cos(angle) * dist,
+                y = 0, -- Keep y at 0, the Utils function handles the base height
+                z = math.sin(angle) * dist
+            }
+
+            -- Check for overlap against previous offsets in this batch
+            local clash = false
+            for _, prevOffset in ipairs(assignedOffsets) do
+                local dx = candidateOffset.x - prevOffset.x
+                local dz = candidateOffset.z - prevOffset.z
+                local distSq = (dx*dx) + (dz*dz)
                 
-                -- Check against the determined chance.
-                if can_use_pair and (math.random() < pair_chance) then
-                    -- Pull a new pair from the shuffled pool.
-                    local pair = table.remove(available_paired_names)
-                    current_name = pair[1]
-                    pending_pair_name = pair[2] -- Set the pending name for the next iteration.
-                else
-                    -- Use a regular random name.
-                    current_name = table.remove(available_random_names) or "Nameless" -- Fallback
+                if distSq < (minDistance * minDistance) then
+                    clash = true
+                    break
                 end
             end
 
-            instanceData.name = current_name:gsub("%%", tostring(i))
+            if not clash then
+                finalOffset = candidateOffset
+                foundSpot = true
+                table.insert(assignedOffsets, finalOffset)
+            end
+        end
+
+        utils.useFromBag(self, function(spawned_object)
+            local image = data.image
+            local instanceData = {}
+            for k, v in pairs(data) do instanceData[k] = v end
+            
+            local final_name
+            final_name, pending_pair_name = generate_name(data.name, i, numberToCreate, pair_chance, pending_pair_name)
+            instanceData.name = final_name
 
             local init_params = {
                 data = instanceData,
-                image = (data.boss and data.image) and data.image or nil, -- Pass the image from _starter here
+                image = (data.boss and data.image) and data.image or nil
             }
 
-            -- Call only _init with all the necessary information
+            local size = getSize(true)
+            spawned_object.setScale({size, size, size})
+            spawned_object.setColorTint(_states[_side].color)
             spawned_object.call("_init", init_params)
-        end, nil, object_tag, "monsterSpawnData")
+
+        -- ARGS: bag_cb, tag, spawn_table, RANDOM_OFFSET (We pass our Vector here)
+        end, nil, object_tag, "monsterSpawnData", finalOffset) 
+        
         coroutine.yield(0)
     end
 
     return 1
 end
+
+function generate_name(name_template, current_index, total_to_create, pair_chance, pending_pair_name)
+    local random_name
+    local new_pending_pair_name = nil
+    
+    if pending_pair_name then
+        -- A pending name from a pair must be used.
+        random_name = pending_pair_name
+        -- pending_pair_name is consumed, so we return nil for it
+    else
+        -- Decide whether to start a new pair or use a regular name.
+        -- Conditions to use a pair:
+        -- 1. There is room for the second part (current_index < total_to_create).
+        -- 2. There are paired names available.
+        local can_use_pair = (current_index < total_to_create) and (#available_paired_names > 0)
+        
+        -- Check against the determined chance.
+        if can_use_pair and (math.random() < pair_chance) then
+            -- Pull a new pair from the shuffled pool.
+            local pair = table.remove(available_paired_names)
+            random_name = pair[1]
+            new_pending_pair_name = pair[2] -- Set the pending name for the next iteration.
+        else
+            -- Use a regular random name.
+            random_name = table.remove(available_random_names) or "Nameless" -- Fallback
+        end
+    end
+    
+    -- Apply the template transformations
+    local final_name = name_template
+    -- Replace / with the random name
+    final_name = final_name:gsub("/", random_name)
+    -- Replace % with the current index
+    final_name = final_name:gsub("%%", tostring(current_index))
+    
+    return final_name, new_pending_pair_name
+end
+
+

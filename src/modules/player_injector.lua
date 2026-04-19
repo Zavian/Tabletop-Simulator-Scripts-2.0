@@ -185,13 +185,14 @@ function ClickLink(_, player_color)
         utils.warning("Please set Max HP and Max Stress then click the button again.", player_color)
     else
         InjectMini(data.token)
-        utils.pingObject(player_color, data.token)
     end
-
+    
     if showing_ui == false then
         showPanel("RightPanel")
         showPanel("LeftPanel")
+        setThresholds(data.first_threshold or 0, data.second_threshold or 0)
         showing_ui = true
+        utils.pingObject(player_color, data.token)
     end
 end
 
@@ -533,7 +534,7 @@ local last_dropped = nil
 function onCollisionEnter(collision_info)
     local drop = collision_info.collision_object
     -- Ignore collisions with surfaces or tiles
-    if drop.type == "Surface" or drop.type == "Custom_Tyle" then
+    if drop.type == "Surface" or drop.type == "Custom_Tyle" or not drop.interactable then
         return
     end
 
@@ -710,6 +711,12 @@ function setHope(amount)
         local image = i > amount and imageAssets.hope.empty or imageAssets.hope.filled
         self.UI.setAttribute("hope_" .. i, "image", image)
     end
+end
+
+function setThresholds(first, second)
+    self.UI.setAttribute("first_threshold", "text", first)
+    self.UI.setAttribute("second_threshold", "text", second)
+    -- utils.appendData(self, {first_threshold = first, second_threshold = second})
 end
 
 

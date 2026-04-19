@@ -14,6 +14,7 @@ local state = nil
 local ready = false
 local lastAng = -1
 local frame = 0
+local IM_BOSS = false
 local data={
     name = "Monster",
     hp = 5,
@@ -54,6 +55,7 @@ function updateSave()
 end
 
 function alignPivot()
+    
     local p = Player["Black"]
     if (p) then
         local pRot = p.getPointerRotation()
@@ -87,8 +89,8 @@ function alignPivot()
 end
 
 function setName(name)
-    self.UI.setValue("craeatureName", name)
     data.name = name
+    self.editInput({index = 0, value = name})
     updateSave()
 end
 
@@ -250,11 +252,16 @@ function onload(saved_data)
 
     
     -- This part runs for every object, every time.
+
+    local z_pos = 0.7
+
     local object_type = self.type
     if object_type == "Figurine" then
         self.setTags({OBJECT_TAGS.monster_token})
     else 
         self.setTags({OBJECT_TAGS.boss_token})
+        IM_BOSS = true
+        z_pos = 0.35
     end
     setupDMUI() -- Sets up UI, context menus, etc.
 
@@ -265,19 +272,36 @@ function onload(saved_data)
         -- Use WaitUntilResting to ensure physics are stable.
         promise.WaitUntilResting(self, function()
             -- Now that the object is stable, move it to its destination.
-            _debug("Post-reload action on final object: " .. self.getGUID(), "MONSTER_UI")
-            local blackHand = Player["Black"].getHandTransform()
-            if blackHand then 
-                self.setLock(false)
-                self.setPosition(blackHand.position) 
-                self.setRotation(Vector(0,0,0))
-            end
+        _debug("Post-reload action on final object: " .. self.getGUID(), "MONSTER_UI")
+            self.setLock(false)
+            -- local blackHand = Player["Black"].getHandTransform()
+            -- if blackHand then 
+            --     self.setPosition(blackHand.position) 
+            --     self.setRotation(Vector(0,0,0))
+            -- end
             
             -- CRITICAL: Clear the flag and save so this doesn't run on a normal game load.
             data.post_reload_action = nil
             updateSave() -- This saves the script_state with the flag removed.
         end)
     end
+
+    self.createInput(
+        {
+            input_function = "name",
+            function_owner = self,
+            label = "Name",
+            alignment = 3,
+            position = {x = 0, y = 0.05, z = z_pos},
+            rotation = {0, 0, 0},
+            width = 2200,
+            height = 475,
+            font_size = 380,
+            validation = 1,
+            scale = {0.3, 0.3, 0.3},
+            value = data.name
+        }
+    )
 
     -- This alignment can run for all loads.
     Wait.time(function()
@@ -313,6 +337,15 @@ function _init(params)
     data.maxStress = json.stress
     data.difficulty = json.difficulty
     data.name = json.name
+
+    local black_name = find_black_name(json.name)
+    if black_name then
+        data.black_name = black_name
+        data.name = name_without_black_name(json.name)
+    else
+        data.black_name = nil
+    end
+
     data.image = json.image
 
     -- 3. SET THE FLAG FOR THE NEXT PHASE
@@ -329,6 +362,24 @@ function _init(params)
     -- This destroys the temporary object and creates the final one.
     -- This is the VERY LAST command.
     self.reload()
+end
+
+function name()
+    return data.name
+end
+
+function find_black_name(name)
+    -- Find text within parentheses
+    local black_name = name:match("%((.-)%)")
+    return black_name
+end
+
+function name_without_black_name(name)
+    -- Remove text within parentheses including the parentheses themselves
+    local name_without_black = name:gsub("%b()", "")
+    -- Trim any trailing/leading whitespace
+    name_without_black = name_without_black:match("^%s*(.-)%s*$")
+    return name_without_black
 end
 
 
@@ -373,8 +424,7 @@ function setupDMUI()
         url="https://steamusercontent-a.akamaihd.net/ugc/2458480429345457547/13A122E49D432AC41893940503983AE71FA6B6DF/"
     }})
     Wait.time(function() 
-        ready = true
-        
+        ready = true     
         
         local XMLString = [[
             <Defaults>
@@ -385,8 +435,8 @@ function setupDMUI()
             </Defaults>
             <Panel id="scale">
                 <Panel id="pivot" visibility="Black" active="]]..tostring(data.showing)..[[" offsetXY="0 0" scale="1 1 1" rotation="0 0 0">
-                    <Panel id="height">
-                        <Panel id="container" offsetXY="0 0" scale="2 2 2" rotation="-45 0 0">
+                    <Panel visibility="Black" id="height">
+                        <Panel id="container" visibility="Black" offsetXY="0 0" scale="2 2 2" rotation="-45 0 0">
                             <Image
                                 id="bars"
                                 image="bars"
@@ -484,12 +534,23 @@ function setupDMUI()
             </GridLayout>
         ]]
         
-        XMLString = XMLString .. [[
-            <Text id="BlackName" scale="1 1 1" fontSize="34" visibility="Black" text="Black Name" color="Black" position="0 50 -50" rotation="90 270 90" fontStyle="Bold" outline="White" outlineSize="1 -1" />
-            <Text id="creatureName" position="0 55 -5" width="200" rotation="180 180 0" scale="1 1 1" fontSize="34" text="]]..data.name..[[" color="Black" fontStyle="Bold" outline="White" outlineSize="1 -1" />
-        ]]
+        -- XMLString = XMLString .. [[
+        --     <Text id="creatureName" position="0 55 -5" width="200" rotation="180 180 0" scale="1 1 1" fontSize="34" text="]]..data.name..[[" color="Black" fontStyle="Bold" outline="White" outlineSize="1 -1" />
+        -- ]]
+
+        if data.black_name then
+            local p = 35
+            if IM_BOSS then
+                p = 15
+            end
+
+            XMLString = XMLString .. [[
+                <Text id="BlackName" scale="1 1 1" fontSize="34" visibility="Black" text="]]..data.black_name..[[" color="Black" position="0 ]].. p ..[[ -50" rotation="90 270 90" fontStyle="Bold" outline="White" outlineSize="1 -1" />
+            ]]
+        end
 
         self.UI.setXml(XMLString)
+        self.setName(data.name)
     end, 0.5)
     Wait.time(function()
         lastAng = -1

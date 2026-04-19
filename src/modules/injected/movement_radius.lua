@@ -22,8 +22,8 @@ local rangeOrder = {"veryClose", "close", "far"}
 
 function onLoad()
     measuredObject = self.getVar("measuredObject")
-    drawCircles("veryClose")
-    currentRange = "veryClose"
+    drawCircles("far")
+    currentRange = "far"
 end
 
 function onUpdate()
@@ -70,10 +70,11 @@ function onUpdate()
     end
 
     -- Only redraw if the range changed
-    if newRange ~= currentRange then
-        currentRange = newRange
-        drawCircles(currentRange)
-    end
+    -- if newRange ~= currentRange then
+    --     currentRange = newRange
+    --     drawCircles(currentRange)
+    -- end
+    -- drawCircles('far')
 end
 
 function drawCircles(maxRange)

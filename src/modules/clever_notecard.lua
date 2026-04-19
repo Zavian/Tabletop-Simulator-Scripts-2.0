@@ -42,6 +42,6 @@ function setData()
 end
 
 function parse()
-    events.broadcast(events.Event.parse_monster_data, self.getDescription())
+    events.broadcast(events.EVENT_NAMES.parse_monster_data, self.getDescription())
 end
 

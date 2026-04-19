@@ -174,15 +174,9 @@ end
 function Utils.findBlackName(name)
     if name == nil then return nil end
 
-    local pattern = ".+%((.+)%)"
-    local _,
-        _,
-        found = string.find(name, pattern)
-    if found ~= nil then
-        return name:gsub("%(" .. found .. "%)", "")
-    end
-
-    return nil
+    -- Find text within parentheses
+    local black_name = name:match("%((.-)%)")
+    return black_name
 end
 
 -- Checks if a player color is currently seated at the table
@@ -290,6 +284,16 @@ function Utils.setData(object, dataTable)
     object.setGMNotes(jsonString)
 end
 
+function Utils.roundVector(vector)
+    log(vector)
+    for _, v in pairs(vector) do
+        vector[_] = math.floor(v)
+        log(v, "v")
+        log(vector[_], "_")
+    end
+    return vector
+end
+
 -- Encodes a Lua table to JSON to save it in the GM notes, appending it
 function Utils.appendData(object, dataTable, dataSubKey)
     local data = Utils.getData(object)
@@ -371,22 +375,80 @@ function Utils.getSeatedPlayers()
     return seated
 end
 
+function Utils.getOnlineCode(link, callback)
+    if not Utils.validDomain(link) then
+        Utils.error("Invalid domain for link: "..link, "Black")
+        callback(nil)
+        return
+    end
+    
+    -- Ensure it's a raw link
+    if not link:find("https://pastebin.com/raw/") then
+        local rawPattern = "^.+/raw/.+$"
+        if not link:find(rawPattern) then
+            local pageNamePattern = "^.+/(.+)$"
+            local _, _, pageName = link:find(pageNamePattern)
+            link = "https://pastebin.com/raw/" .. pageName
+        end
+    end
+    
+    WebRequest.get(
+        link,
+        function(request)
+            if request.is_error then
+                Utils.error(request.error, player_clicker_color, "Black")
+                callback(nil)
+            else
+                local script = request.text
+                if script == '{"message":"Document not found."}' then
+                    Utils.error("Code not found at the provided link.", "Black")
+                    callback(nil)
+                else
+                    Utils.success("Code successfully retrieved from online source.", "Black")
+                    callback(script)
+                end
+            end
+        end
+    )
+end
+
+function Utils.validDomain(link)
+    local domains = { "https://pastebin.com/raw/", "https://pastebin.com/" }
+
+
+    for i = 1, #domains do
+        if link:find(domains[i], 1, true) then
+            return true
+        end
+    end
+
+    return false
+end
+
 -- Take something from a bag and use it
-function Utils.useFromBag(bag, obj_function, bag_callback_function, object_tag, spawn_table, random_offset)
+function Utils.useFromBag(bag, obj_function, bag_callback_function, object_tag, spawn_table_name, random_offset)
     local targeted_spawn = require("src.modules.target_reticle_context_menu")
 
     if not bag then return end
 
     if bag.type == "Infinite" or bag.hasTag(OBJECT_TAGS.infinite_container) then
-        local position = targeted_spawn.getSpawnData("pos", spawn_table)
+        local position = Vector(targeted_spawn.getSpawnData("pos", spawn_table_name))
 
         if random_offset then
-            local offset = math.random(-5, 5)
-            position = position + Vector(offset, 0, offset)
+            -- Check if we passed a specific Vector/Table (Calculated spacing)
+            if type(random_offset) == "table" or type(random_offset) == "userdata" then
+                -- Add our specific calculated offset to the target position
+                position = position + Vector(random_offset)
+            else
+                -- Fallback to the old random logic if we just passed 'true'
+                -- print(random_offset) -- Optional: comment out debug print
+                local offset = math.random(-5, 5)
+                position = position + Vector(offset, 0, offset)
+            end
         end
 
 
-        local rotation = targeted_spawn.getSpawnData("rot", spawn_table)
+        local rotation = Vector(targeted_spawn.getSpawnData("rot", spawn_table_name))
         local obj = bag.takeObject({
             position = position,
             rotation = rotation,
@@ -402,7 +464,7 @@ function Utils.useFromBag(bag, obj_function, bag_callback_function, object_tag, 
     return nil
 end
 
-function Utils.replaceObjectInBagByTag(bag, tag_to_replace, new_object)
+function Utils.swapObjectInBagByTag(bag, tag_to_replace, new_object, callback_after_clone)
     local object_index = Utils.getIndexObjectWithinByTag(bag, tag_to_replace)
     if object_index then
         bag.removeTag(OBJECT_TAGS.infinite_container)
@@ -412,6 +474,9 @@ function Utils.replaceObjectInBagByTag(bag, tag_to_replace, new_object)
             position = bag.getPosition() + Vector(0,3,0),
             sound = false
         })
+        if callback_after_clone then
+            callback_after_clone(clone)
+        end
         bag.putObject(clone)
         bag.addTag(OBJECT_TAGS.infinite_container)
     else
@@ -419,6 +484,24 @@ function Utils.replaceObjectInBagByTag(bag, tag_to_replace, new_object)
     end
 end
 
-return Utils
+function Utils.replaceObjectInBagByTag(bag, tag_to_replace, callback_after_taking)
+    local object_index = Utils.getIndexObjectWithinByTag(bag, tag_to_replace)
+    if object_index then
+        bag.removeTag(OBJECT_TAGS.infinite_container)
 
--- Get seated players table
+        local obj = bag.takeObject({index = object_index})
+        if callback_after_taking then
+            callback_after_taking(obj)
+        end
+
+        Wait.frames(function()        
+            bag.putObject(obj)
+            bag.addTag(OBJECT_TAGS.infinite_container)
+        end, 50)
+        
+    else
+        return false
+    end
+end
+
+return Utils
