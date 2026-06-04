@@ -15,6 +15,8 @@ local ready = false
 local lastAng = -1
 local frame = 0
 local IM_BOSS = false
+local _visible = true
+
 local data={
     name = "Monster",
     hp = 5,
@@ -400,13 +402,15 @@ function setupDMUI()
     end, false)
     self.addContextMenuItem("Toggle Condition", function(player_color)
         Player[player_color].showOptionsDialog("Select Condition", 
-            {"Select Condition", "restrained", "vulnerable", "stressed", "bloodied"},
+            {"Select Condition", "restrained", "vulnerable", "stressed", "bloodied", "hidden"},
             1,
             function (text, player_color)
                 toggleCondition(text)
             end
         )
     end, false)
+
+    self.addContextMenuItem("[cf00ff]Toggle visibility[-]", toggleVisibilityMenu, true)
 
     self.UI.setCustomAssets({{
         type=0,
@@ -531,6 +535,7 @@ function setupDMUI()
                 <Image id="vulnerable" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["vulnerable"].url..[[" rotation="0 0 180"  active="false" />
                 <Image id="stressed" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["stressed"].url..[["  active="false" />
                 <Image id="bloodied" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["bloodied"].url..[["  active="false" />
+                <Image id="hidden" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["hidden"].url..[["  active="false" visibility="Black" />
             </GridLayout>
         ]]
         
@@ -571,4 +576,27 @@ end
 
 function hasScriptingTags(obj)
     return utils.hasTagsFromList(obj, {OBJECT_TAGS.monster_token, OBJECT_TAGS.boss_token})
+end
+
+function toggleVisibilityMenu(player_color)
+    if player_color ~= "Black" then
+        return
+    end
+
+    _visible = not _visible
+
+    local objs = Player["Black"].getSelectedObjects()
+    for i = 1, #objs do
+        if hasScriptingTags(objs[i]) then
+            if not _visible then
+                objs[i].setInvisibleTo(utils.hideFromPlayersArray())
+
+                local c = objs[i].getColorTint()
+                objs[i].setColorTint({r=c.r, g=c.g, b=c.b, a=0.3})
+
+            else objs[i].setInvisibleTo({}) end
+
+            toggleCondition("hidden")
+        end
+    end
 end
