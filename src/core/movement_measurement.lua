@@ -6,6 +6,12 @@ local MovementMeasurement = {}
 MovementMeasurement.my_token = nil
 move_token = nil
 MovementMeasurement.measuring = { }
+MovementMeasurement.timers = {}
+
+local ENABLE_AUTO_SNAP = (SAVED_DATA.PLAYER[player_color] and SAVED_DATA.PLAYER[player_color].autoSnap ~= nil) or true
+local SNAP_THRESHOLD = 10
+
+local MEASUREMENT_TIMEOUT = 5
 
 function MovementMeasurement.create(target)
     target.addTag(OBJECT_TAGS.movement_measurement)
@@ -15,20 +21,68 @@ function MovementMeasurement.create(target)
         MovementMeasurement.measuring[target.guid] = not MovementMeasurement.measuring[target.guid]
         if MovementMeasurement.measuring[target.guid] then
             MovementMeasurement.createMoveToken(target, player_color, true)
+            MovementMeasurement.resetTimer(target, player_color)
         else 
             MovementMeasurement.destroyMoveToken(target)
+            MovementMeasurement.cancelTimer(target.guid)
         end
+    end)
+
+    target.addContextMenuItem("Toggle auto snap",
+    function(player_color)
+        ENABLE_AUTO_SNAP = not ENABLE_AUTO_SNAP
+        if ENABLE_AUTO_SNAP then
+            Utils.success("Auto snap enabled", player_color)
+        else
+            Utils.error("Auto snap disabled", player_color)
+        end
+
+        -- TODO: Implement the global save function
+        -- Utils.updateGlobalSave({player_color .. ".autoSnap", ENABLE_AUTO_SNAP})
+        SAVED_DATA.PLAYER[player_color] = SAVED_DATA.PLAYER[player_color] or {}
+        SAVED_DATA.PLAYER[player_color].autoSnap = ENABLE_AUTO_SNAP
     end)
 end
 
 function MovementMeasurement.onPickUp(obj, player_color)
-    if MovementMeasurement.measuring[obj.guid] then return end
+    if MovementMeasurement.measuring[obj.guid] then
+        MovementMeasurement.resetTimer(obj, player_color)
+        return
+    end
     MovementMeasurement.createMoveToken(obj, player_color, true)
+    MovementMeasurement.resetTimer(obj, player_color)
 end
 
 function MovementMeasurement.onDrop(obj, player_color)
     if MovementMeasurement.measuring[obj.guid] then return end
     MovementMeasurement.destroyMoveToken(obj, player_color)
+    MovementMeasurement.cancelTimer(obj.guid)
+    obj.use_snap_points = false
+end
+
+
+function MovementMeasurement.resetTimer(obj, player_color)
+    MovementMeasurement.cancelTimer(obj.guid)
+    local guid = obj.guid
+    local timerId = Wait.time(function()
+        -- only auto-clear if still in measuring mode
+        if MovementMeasurement.measuring[guid] then
+            MovementMeasurement.measuring[guid] = false
+            local target = getObjectFromGUID(guid)
+            if target then
+                MovementMeasurement.destroyMoveToken(target, player_color)
+            end
+        end
+        MovementMeasurement.timers[guid] = nil
+    end, MEASUREMENT_TIMEOUT)
+    MovementMeasurement.timers[guid] = timerId
+end
+
+function MovementMeasurement.cancelTimer(guid)
+    if MovementMeasurement.timers[guid] then
+        Wait.stop(MovementMeasurement.timers[guid])
+        MovementMeasurement.timers[guid] = nil
+    end
 end
 
 function MovementMeasurement.createMoveToken(my_token, player_color, show_only_to_player)
@@ -50,7 +104,6 @@ function MovementMeasurement.createMoveToken(my_token, player_color, show_only_t
         }
     )
     for _, hitTable in ipairs(hitList) do
-        -- Find the first object directly below the mini
         if hitTable ~= nil and hitTable.point ~= nil and hitTable.hit_object ~= my_token then
             startloc = hitTable.point
             break
@@ -78,12 +131,20 @@ function MovementMeasurement.createMoveToken(my_token, player_color, show_only_t
 
     my_token.setVar("moveToken", move_token)
 
-
     move_token.setLock(true)
     move_token.setCustomObject(movetokenparams)
     move_token.setVar("measuredObject", my_token)
     move_token.setVar("myPlayer", player_color)
     move_token.setVar("className", "MeasurementToken_Move")
+
+    move_token.getComponent("BoxCollider").set("enabled",false)
+
+    if not ENABLE_AUTO_SNAP then
+        SNAP_THRESHOLD = math.huge
+    end
+
+
+    move_token.setVar("snapThreshold", SNAP_THRESHOLD)
 
     if show_only_to_player then
         move_token.setInvisibleTo(utils.hideFromAllButPlayer(player_color))
@@ -103,9 +164,10 @@ function MovementMeasurement.createMoveToken(my_token, player_color, show_only_t
     local gridSize = Grid.sizeX or 2
 local measuredObject = nil
 local currentRange = nil
+local snapThreshold = nil
+local snappingEnabled = false
 
 local ranges = {
-    -- the .5 is to account for the grid and show at the edge of the square
     veryClose = {
         radius = 3.5,
         color = {0, 0.659, 0.976}
@@ -124,14 +186,12 @@ local rangeOrder = {"veryClose", "close", "far"}
 
 function onLoad()
     measuredObject = self.getVar("measuredObject")
+    snapThreshold = self.getVar("snapThreshold") or 5
     drawCircles("far")
     currentRange = "far"
 end
 
 function onUpdate()
-    -- self.interactable = false
-    -- self.locked = true
-    
     if measuredObject == nil or measuredObject.held_by_color == nil then
         return
     end
@@ -148,16 +208,11 @@ function onUpdate()
     end
     
     mDistance = mDistance * gridSize
-    -- mDistance = math.floor(mDistance)    
-    -- Determine which range to activate based on distance
-    -- mDistance is basically the squares travelled
-    local newRange = nil
-    if mDistance <= 8 then
-        newRange = "veryClose"
-    elseif mDistance > 7 and mDistance <= 14 then
-        newRange = "close"
-    elseif mDistance > 14 then
-        newRange = "far"
+
+    local rawDistance = math.sqrt(mdiff.x * mdiff.x + mdiff.z * mdiff.z)
+    if rawDistance >= snapThreshold and not snappingEnabled then
+        measuredObject.use_snap_points = true
+        snappingEnabled = true
     end
 
     if mDistance <= 8.9 then 
@@ -170,20 +225,12 @@ function onUpdate()
         self.editButton({index = 0, label = "Far"})
         self.setColorTint(ranges.far.color)
     end
-
-    -- Only redraw if the range changed
-    -- if newRange ~= currentRange then
-    --     currentRange = newRange
-    --     drawCircles(currentRange)
-    -- end
-    -- drawCircles('far')
 end
 
 function drawCircles(maxRange)
     local lines = {}
     local scale = self.getScale()
     
-    -- Find the index of maxRange in rangeOrder
     local maxIndex = 1
     for i, rangeName in ipairs(rangeOrder) do
         if rangeName == maxRange then
@@ -192,7 +239,6 @@ function drawCircles(maxRange)
         end
     end
     
-    -- Draw all circles up to and including maxRange
     for i = 1, maxIndex do
         local rangeName = rangeOrder[i]
         local range = ranges[rangeName]
@@ -228,7 +274,9 @@ end
 
 function MovementMeasurement.destroyMoveToken(obj, player_color)
     local move_token = obj.getVar("moveToken")
-    move_token.destroy()
+    if move_token then
+        move_token.destroy()
+    end
 end
 
 return MovementMeasurement
