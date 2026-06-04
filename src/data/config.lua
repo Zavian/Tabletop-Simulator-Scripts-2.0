@@ -151,3 +151,11 @@ OBJECT_TAGS = {
     movement_measurement = "movement_measurement",
     player = "player_token"
 }
+
+SAVED_DATA = {
+    PLAYER = {
+        ["Black"] = {
+            autoSnap = false
+        },
+    }
+}

@@ -18,6 +18,20 @@ function Utils.updateSave(self, data)
     self.script_state = saved_data
 end
 
+
+function Utils.updateGlobalSave(data)
+    for k, v in pairs(data) do
+        print(k)
+        print(v)
+        if CONFIG.SAVED_DATA[k] then
+            CONFIG.SAVED_DATA[k] = CONFIG.SAVED_DATA[k] .. ";" .. v
+        else
+            CONFIG.SAVED_DATA[k] = v
+        end
+    end
+    log("Global save updated: " .. JSON.encode(CONFIG.SAVED_DATA))
+end
+
 -- Returns the color associated with a player name (case insensitive). Must be defined in CONFIG.playersColors
 function Utils.getColorByPlayer(player)
     player = string.lower(player)

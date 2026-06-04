@@ -22,7 +22,7 @@ local COMPONENTS = {
 local _SEARCHING = false
 
 -- onload stuff
-function onLoad(save_state)
+function onLoad(saved_data)
     promise.WaitFrames(35, function()
 
         initializeTableComponents()
@@ -40,6 +40,8 @@ function onLoad(save_state)
         local newNote = utils.getObjectByTag(OBJECT_TAGS.clever_notecard)
         utils.swapObjectInBagByTag(COMPONENTS.npc_commander, OBJECT_TAGS.clever_notecard, newNote)
     end)
+
+    if saved_data then SAVED_DATA = JSON.decode(saved_data) end
 end
 
 -- Event Handlers for bags
@@ -122,4 +124,10 @@ end
 
 function list()
     EventDispatcher.list()
+end
+
+function onSave()
+    local saved_data = JSON.encode(SAVED_DATA)
+    self.script_state = saved_data
+    return self.script_state
 end
