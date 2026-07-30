@@ -17,32 +17,7 @@ local frame = 0
 local IM_BOSS = false
 local _visible = true
 
--- Fly up/down state (ported from legacy script)
-local _flyOffset = 0
-local _floating = false
 local _myPosition = nil
-local OFFSET_VALUE = Grid.sizeX
-
--- Range bands, in squares (1 square = 5ft), used to color/label the height button and shadow
--- Melee: 1 | Very Close: 3 | Close: 6 | Far: 12 | Very Far: 13+
-local RANGE_COLORS = {
-    melee     = {0, 0.4550, 0.8510, 1}, -- default blue
-    veryClose = {0, 0.659, 0.976, 1},
-    close     = {0.204, 0.91, 0, 1},
-    far       = {0.918, 0.416, 0, 1},
-    veryFar   = {0.91, 0.169, 0.169, 1} -- red-ish
-}
-local RANGE_LABELS = {
-    melee     = "Melee",
-    veryClose = "Very\nClose",
-    close     = "Close",
-    far       = "Far",
-    veryFar   = "Very\nFar"
-}
-
--- Ground shadow indicator state
-local _groundIndicator = nil
-local _lastIndicatorPos = nil
 
 local data={
     name = "Monster",
@@ -55,104 +30,17 @@ local data={
     height = -1
 }
 
--- Helper to check if any given object is currently being held or selected by any player
-function isObjectHeldOrSelected(obj)
-    if not obj then return false end
-    if obj.held_by_color ~= nil then
-        return true
-    end
-    local players = Player.getPlayers()
-    for _, p in ipairs(players) do
-        local selected = p.getSelectedObjects()
-        if selected then
-            for _, sObj in ipairs(selected) do
-                if sObj == obj then
-                    return true
-                end
-            end
-        end
-    end
-    return false
-end
-
--- Toggles whether the shadow token can be clicked, dragged, and affected by gravity/snapping
-function setShadowInteractable(state)
-    if not _groundIndicator then
-        return
-    end
-    _groundIndicator.setLock(not state)
-    _groundIndicator.interactable = state
-    _groundIndicator.use_gravity = state
-    _groundIndicator.use_grid = false
-    _groundIndicator.tooltip = state
-
-    local col = _groundIndicator.getComponent("BoxCollider") or _groundIndicator.getComponent("MeshCollider") or _groundIndicator.getComponent("CapsuleCollider")
-    if col then
-        col.set("enabled", state)
-    end
-end
-
--- Performs a downward raycast to find the ground height below the token (used when grounded)
-function getGroundHeight()
-    local pos = self.getPosition()
-    local origin = {
-        x = pos.x,
-        y = pos.y + 0.1,
-        z = pos.z
-    }
-
-    local hitList = Physics.cast({
-        origin = origin,
-        direction = {0, -1, 0},
-        type = 1,
-        max_distance = 30,
-        debug = false
-    })
-
-    for _, hit in ipairs(hitList) do
-        if hit ~= nil and hit.hit_object ~= nil and hit.hit_object ~= self and (not _groundIndicator or hit.hit_object ~= _groundIndicator) then
-            return hit.point.y
-        end
-    end
-    return 0
-end
-
 function onUpdate()
     if (ready) then
         frame = frame+1
         if (frame % 8 == 0 or self.isSmoothMoving()) then
             alignPivot()
         end
-        if (frame % 4 == 0 or self.isSmoothMoving()) then
-            maybeUpdateGroundIndicator()
-        end
-    end
-
-    if _floating and _groundIndicator then
-        local shadowPos = _groundIndicator.getPosition()
-        local targetY = shadowPos.y + _flyOffset
-        local selfPos = self.getPosition()
-
-        -- If the shadow is actively being dragged, snap the mini instantly for zero lag
-        if isObjectHeldOrSelected(_groundIndicator) then
-            self.setPosition({shadowPos.x, targetY, shadowPos.z})
-            self.setVelocity({0, 0, 0})
-            self.setAngularVelocity({0, 0, 0})
-        else
-            -- Otherwise, smoothly align to the shadow
-            if math.abs(selfPos.x - shadowPos.x) > 0.01 
-                or math.abs(selfPos.z - shadowPos.z) > 0.01 
-                or math.abs(selfPos.y - targetY) > 0.01 
-            then
-                self.setPositionSmooth({shadowPos.x, targetY, shadowPos.z}, false, false)
-            end
-        end
     end
 end
 
 function onPickUp(player_color)
     self.UI.hide("pivot")
-    _floating = false
 end
 
 function onDrop(player_color)
@@ -162,7 +50,6 @@ function onDrop(player_color)
         self.UI.show("pivot")
     end
     _myPosition = self.getPosition()
-    setFloat()
 end
 
 function updateSave()
@@ -202,201 +89,7 @@ function alignPivot()
     end
 end
 
--- ===== Fly up/down (ported from legacy script) =====
 
-function flyUp(player_color)
-    if player_color ~= "Black" then
-        return
-    end
-    _flyOffset = _flyOffset + OFFSET_VALUE
-    setFloat()
-end
-
-function flyDown(player_color)
-    if player_color ~= "Black" then
-        return
-    end
-    if _floating then
-        _flyOffset = _flyOffset - OFFSET_VALUE
-    end
-    setFloat()
-end
-
-function resetFlyButton(obj, color)
-    if color == "Black" then
-        _flyOffset = 0
-        setFloat()
-    end
-end
-
-function setFloat()
-    if _flyOffset == 0 then
-        _floating = false
-        self.use_gravity = true
-        hideHeightButton()
-        setGroundIndicatorLabel("", nil)
-        setShadowInteractable(false)
-    else
-        _floating = true
-        self.use_gravity = false
-        updateHeightButton()
-        setShadowInteractable(true)
-    end
-    spawnGroundIndicator()
-end
-
-function hideHeightButton()
-    self.editButton({index = 0, font_color = {1,1,1,0}})
-    self.editButton({index = 0, color = {0,0.4550,0.8510,0}})
-end
-
--- Picks a range band key based on how many squares up the token is flying
-function getRangeBand(squares)
-    if squares <= 1 then
-        return "melee"
-    elseif squares <= 3 then
-        return "veryClose"
-    elseif squares <= 6 then
-        return "close"
-    elseif squares <= 12 then
-        return "far"
-    else
-        return "veryFar"
-    end
-end
-
-function updateHeightButton()
-    local squares = _flyOffset / OFFSET_VALUE
-    local band = getRangeBand(squares)
-    self.editButton({index = 0, font_color = {1,1,1,1}})
-    self.editButton({index = 0, color = RANGE_COLORS[band]})
-    self.editButton({index = 0, label = "+" .. squares * 5})
-    setGroundIndicatorLabel(RANGE_LABELS[band], RANGE_COLORS[band])
-end
-
--- ===== end fly up/down =====
-
--- ===== Ground shadow indicator =====
-
--- Converts a {r,g,b,a} (0-1 float) color table into a "#RRGGBBAA" hex string
-function colorToHex(c)
-    local function toHex(v)
-        return string.format("%02X", math.floor((v or 1) * 255 + 0.5))
-    end
-    return "#" .. toHex(c[1]) .. toHex(c[2]) .. toHex(c[3]) .. toHex(c[4])
-end
-
--- Updates the range-band text on the shadow indicator
-function setGroundIndicatorLabel(text, color)
-    if not _groundIndicator then
-        return
-    end
-    _groundIndicator.UI.setAttribute("rangeLabel", "text", text or "")
-    if color then
-        _groundIndicator.UI.setAttribute("rangeLabel", "color", colorToHex(color))
-    end
-end
-
-function spawnGroundIndicator()
-    if _groundIndicator then
-        if not _floating then
-            destroyGroundIndicator()
-        end
-        return
-    end
-
-    local bounds = self.getBounds()
-    local size = math.max(bounds.size.x, bounds.size.z) * 0.45
-    local pos = self.getPosition()
-
-    spawnObject({
-        type = "reversi_chip",
-        position = {pos.x, pos.y - 0.5, pos.z},
-        rotation = {0, 0, 0},
-        scale = {size, 0.02, size},
-        sound = false,
-        callback_function = function(obj)
-            _groundIndicator = obj
-            obj.setColorTint({0, 0, 0})
-            obj.setName("Height Base")
-            obj.sticky = false
-            obj.setInvisibleTo(_visible and {} or utils.hideFromPlayersArray())
-
-            -- Retrieve tags from the original token and copy them to the shadow
-            local originalTags = self.getTags()
-            if originalTags then
-                obj.setTags(originalTags)
-            end
-
-            local rot = self.getRotation()
-
-            obj.UI.setXml([[
-                <Text id="rangeLabel" text="" color="#FFFFFFFF" fontSize="22"
-                    fontStyle="Bold" alignment="MiddleCenter" width="600" height="600"
-                    position="0 0 -150" rotation="0 0 180" outline="#000000FF" outlineSize="3 -3" />
-            ]])
-
-            obj.setRotation({0, rot.y, 0})
-
-            if _floating then
-                local band = getRangeBand(_flyOffset / OFFSET_VALUE)
-                obj.UI.setAttribute("rangeLabel", "text", RANGE_LABELS[band])
-                obj.UI.setAttribute("rangeLabel", "color", colorToHex(RANGE_COLORS[band]))
-            end
-
-            Wait.condition(function()
-                setShadowInteractable(_floating)
-            end, function() return not obj.loading_custom end)
-        end
-    })
-end
-
--- Cheap gate: only pay for the (relatively expensive) raycast when the
--- token's x/z has actually moved since the last check.
-function maybeUpdateGroundIndicator()
-    if not _groundIndicator then
-        return
-    end
-
-    -- If we are floating, the shadow acts as the anchor and doesn't follow the mini.
-    if _floating then
-        return
-    end
-
-    local pos = self.getPosition()
-    if _lastIndicatorPos
-        and math.abs(pos.x - _lastIndicatorPos.x) < 0.05
-        and math.abs(pos.z - _lastIndicatorPos.z) < 0.05
-    then
-        return
-    end
-
-    _lastIndicatorPos = {x = pos.x, z = pos.z}
-    updateGroundIndicator()
-end
-
-function updateGroundIndicator()
-    if not _groundIndicator then
-        return
-    end
-
-    local pos = self.getPosition()
-    local groundY = getGroundHeight()
-    _groundIndicator.setPosition({pos.x, groundY + 0.02, pos.z})
-end
-
-function destroyGroundIndicator()
-    if _groundIndicator then
-        destroyObject(_groundIndicator)
-        _groundIndicator = nil
-    end
-end
-
-function onDestroy()
-    destroyGroundIndicator()
-end
-
--- ===== end ground shadow indicator =====
 
 function setName(name)
     data.name = name
@@ -569,6 +262,7 @@ function onload(saved_data)
     setupDMUI() 
 
     self.addTag(OBJECT_TAGS.movement_measurement)
+    self.addTag(OBJECT_TAGS.flying)
 
     if (data.post_reload_action) then
         promise.WaitUntilResting(self, function()
@@ -596,29 +290,10 @@ function onload(saved_data)
         }
     )
 
-    -- Fly height button
-    self.createButton(
-        {
-            click_function = "resetFlyButton",
-            function_owner = self,
-            label = "+999",
-            position = {x = 1.3, y = 0.05, z = z_pos},
-            rotation = {0, 0, 0},
-            width = 600,
-            height = 475,
-            font_size = 300,
-            color = {0, 0.4550, 0.8510, 1},
-            font_color = {1, 1, 1, 1},
-            tooltip = "Height",
-            scale = {0.3, 0.3, 0.3}
-        }
-    )
-    hideHeightButton()
-
     Wait.time(function()
         lastAng = -1
         alignPivot()
-        -- spawnGroundIndicator()
+        Global.call("initializeFlying", {guid = self.getGUID()})
     end, 0.75)
 end
 
@@ -680,8 +355,6 @@ function setupDMUI()
     self.addContextMenuItem("Toggle UI", toggleUI, true)
     self.addContextMenuItem("Raise UI", raiseUI, true)
     self.addContextMenuItem("Lower UI", lowerUI, true)
-    self.addContextMenuItem("Fly Up", flyUp, true)
-    self.addContextMenuItem("Fly Down", flyDown, true)
     self.addContextMenuItem("Set Name", function(player_color)
         if player_color ~= "Black" then
             utils.error("You must be GM to set names.", player_color)
@@ -889,11 +562,13 @@ function toggleVisibilityMenu(player_color)
                 objs[i].setColorTint({r=c.r, g=c.g, b=c.b, a=1})
             end
 
-            if objs[i] == self and _groundIndicator then
-                _groundIndicator.setInvisibleTo(_visible and {} or utils.hideFromPlayersArray())
-            end
+            Global.call("updateFlyingVisibility", {guid = objs[i].getGUID(), visible = _visible})
 
             toggleCondition("hidden")
         end
     end
+end
+
+function is_visible()
+    return _visible
 end

@@ -9,6 +9,7 @@ local utils = require('src.core.utils')
 local updater = require('src.core.updater')
 local promise = require('src.core.promise')
 local movement_measurement = require('src.core.movement_measurement')
+local flying = require('src.core.flying')
 
 -- Load UI Manager
 
@@ -39,6 +40,16 @@ function onLoad(saved_data)
 
         local newNote = utils.getObjectByTag(OBJECT_TAGS.clever_notecard)
         utils.swapObjectInBagByTag(COMPONENTS.npc_commander, OBJECT_TAGS.clever_notecard, newNote)
+
+        -- Scan and initialize any existing flying tokens
+        local all_objs = getAllObjects()
+        for _, obj in ipairs(all_objs) do
+            if obj.hasTag(OBJECT_TAGS.flying) then
+                if obj.getVar("flyOffset") == nil then
+                    flying.create(obj)
+                end
+            end
+        end
     end)
 
     if saved_data then SAVED_DATA = JSON.decode(saved_data) end
@@ -82,6 +93,13 @@ function onObjectPickUp(player_color, pick_obj)
         end
         movement_measurement.onPickUp(pick_obj, player_color)
     end
+
+    if pick_obj.hasTag(OBJECT_TAGS.flying) then
+        if pick_obj.getVar("flyOffset") == nil then
+            flying.create(pick_obj)
+        end
+        flying.onPickUp(pick_obj, player_color)
+    end
 end
 
 function onObjectDrop(player_color, drop_obj)
@@ -91,6 +109,14 @@ function onObjectDrop(player_color, drop_obj)
     if drop_obj.hasTag(OBJECT_TAGS.movement_measurement) then
         movement_measurement.onDrop(drop_obj)
     end
+
+    if drop_obj.hasTag(OBJECT_TAGS.flying) then
+        flying.onDrop(drop_obj)
+    end
+end
+
+function resetFlyButton(obj, color)
+    flying.resetFlyButton(obj, color)
 end
 
 function initializeTableComponents()
@@ -124,6 +150,25 @@ end
 
 function list()
     EventDispatcher.list()
+end
+
+function registerGroundIndicator(params)
+    flying.registerGroundIndicator(params)
+end
+
+function initializeFlying(params)
+    if not params or not params.guid then return end
+    local target = getObjectFromGUID(params.guid)
+    if target then
+        if target.getVar("flyOffset") == nil then
+            flying.create(target)
+        end
+    end
+end
+
+function updateFlyingVisibility(params)
+    if not params or not params.guid then return end
+    flying.updateVisibility(params.guid, params.visible)
 end
 
 function onSave()

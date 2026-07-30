@@ -149,6 +149,7 @@ OBJECT_TAGS = {
     boss_token = "boss_token",
     infinite_container = "infinite_container",
     movement_measurement = "movement_measurement",
+    flying = "flying",
     player = "player_token"
 }
 

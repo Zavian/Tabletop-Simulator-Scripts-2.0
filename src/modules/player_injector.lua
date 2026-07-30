@@ -230,7 +230,7 @@ function set_data(params)
 
     log(params)
 
-    self.setTags({"player_token", "movement_measurement"})
+    self.setTags({"player_token", "movement_measurement", "flying"})
     data.hp = tonumber(params.hp)
     data.maxHp = tonumber(params.max_hp)
     data.stress = tonumber(params.stress)
@@ -504,6 +504,7 @@ end
 
 
         linked.call("set_data", params)
+        Global.call("initializeFlying", {guid = linked.getGUID()})
 
         -- Why am i doing it twice you ask
         -- Well, you see, funny and tts is so hilarious
