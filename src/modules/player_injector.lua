@@ -1,109 +1,140 @@
 --[[StartXML
 <Defaults>
-    <!-- THEME PALETTE (Change these to change the look) -->
-    <Panel class="bg_main" color="#2B2D31" outline="#1E1F22" outlineSize="2" />
-    <Panel class="bg_accent" color="#1E1F22" />
-    <GridLayout class="bg_accent" color="#1E1F22" />
-    <Panel class="divider" color="#3F4147" />
-    <Text class="txt_header" color="#B5BAC1" fontSize="19" fontStyle="Bold" />
-    <Text class="txt_label" color="#FFFFFF" fontSize="26" fontStyle="Bold" />
-    <Text class="txt_sublabel" color="#949BA4" fontSize="17" fontStyle="Bold" />
-    <Text class="txt_value" color="#FFFFFF" fontSize="30" fontStyle="Bold" />
+    <!-- General Defaults -->
+    <Text color="#F3F4F6" fontStyle="Bold" alignment="MiddleCenter" />
+    <Button color="#272A34" textColor="#FFFFFF" hoverColor="#3B3E4D" pressColor="#1A1C23" fontStyle="Bold" />
+    <Panel color="Transparent" />
 
-    <Button class="heal" colors="#2ECC40|#55DF65|#43A34E|gray" TextColor="white" textAlignment="MiddleCenter" FontSize="25" />
-    <Button class="damage" colors="#FF4136|#FB8881|#C93931|gray" TextColor="black" textAlignment="MiddleCenter" FontSize="25" />
-    <InputField textAlignment="MiddleCenter" FontSize="30" placeholder=" " />
-    <Button class="condition" width="150" height="150" iconWidth="85" iconColor="White" onclick="UI_AddCondition(id)" onmouseenter="UI_ShowCondition(id)" onmouseexit="UI_DefaultCondition()" />
-    <Button class="shape" width="150" height="150" iconWidth="85" iconColor="White" onclick="UI_AddCondition(id)" onmouseenter="UI_ShowCondition(id)" onmouseexit="UI_DefaultCondition()" fontSize="25" fontStyle="Bold" textColor="#353c45" />
-    <Button class="reminder" width="150" height="65" fontSize="26" />
-
-    <Image tooltipFontSize="25" tooltipPosition="Below" />
-    <Cell dontUseTableCellBackground="true" />
-    <Cell class="shield" image="https://steamusercontent-a.akamaihd.net/ugc/9694915526965512541/CF069EC63EA00DC557F7F7789824FD2DF7C01967/" preserveAspect="true" />
-    <Image class="hp"      image="https://steamusercontent-a.akamaihd.net/ugc/10494050456455959184/B2057166B19BAE387F62C851A6404592248EB3A1/" />
-    <Image class="stress"  image="https://steamusercontent-a.akamaihd.net/ugc/15261052138615878051/6A2F452DCA95EDA5CDD8FD82EC58F4B286AA585B/" />
-    <Image class="suffer"  image="https://steamusercontent-a.akamaihd.net/ugc/14024381771947100105/325CB2BAEA3FEBE36AABB58A85F42E1ECDD776E7/" />
-    <Image class="recover" image="https://steamusercontent-a.akamaihd.net/ugc/16173868841376293391/B38EECBC780FE130D74F0838223179AA78E4D454/" />
-    <Image class="config"  image="https://steamusercontent-a.akamaihd.net/ugc/13181144063212574143/4B6DE15D870B71292B2A991EDF3D8297396EC97F/" color="#4B5563" />
-    <Image class="hope"        image="https://steamusercontent-a.akamaihd.net/ugc/12708366135666346318/BB64E4C4F488D80BE6E4F71C3338027600E499AF/" />
-    <Image class="hope-filled" image="https://steamusercontent-a.akamaihd.net/ugc/12670953746498142696/BE3FF12AC9766F669C026E325E3A14FB21FAC75C/" />
-    <Image class="armor"        image="https://steamusercontent-a.akamaihd.net/ugc/9694915526965512541/CF069EC63EA00DC557F7F7789824FD2DF7C01967/" />
-    <Image class="armor-filled" image="https://steamusercontent-a.akamaihd.net/ugc/17986014787525797611/84F0E34394978D49F11687C5B0659314DCDB14AD/" />
+    <!-- Custom Class Defaults -->
+    <Text class="stat-label" fontSize="11" color="#9CA3AF" />
+    <Text class="sub-label" fontSize="9" color="#6B7280" />
 </Defaults>
 
-<!-- RIGHT PANEL -->
-<Panel showAnimation="FadeIn" id="RightPanel" class="bg_main" position="340 0 -50" width="660" height="430" scale=".75 .75 .75">
-    
-    <Panel rectAlignment="UpperCenter" width="660" height="46" class="bg_accent">
-        <Text rectAlignment="MiddleCenter" text="DAMAGE THRESHOLDS" class="txt_header" />
-    </Panel>
+<!-- Main Container Panel -->
+<Panel position="0 300 -50" width="560" height="440" color="#0F1015F2" padding="12" rectAlignment="MiddleCenter" id="StatsPanel">
+    <VerticalLayout spacing="8">
+        
+        <!-- ======================================================= -->
+        <!-- 1. TOP STATS (EVASION & ARMOR SCORE) - 2 Column Grid   -->
+        <!-- ======================================================= -->
+        <GridLayout cellSize="263 120" spacing="10 0" height="120">
+            
+            <!-- Evasion Box -->
+            <VerticalLayout color="#181A20" outline="#374151" outlineSize="1 1" padding="6" spacing="2">
+                <Text text="EVASION" class="stat-label" height="16" wrapText="false" />
+                
+                <!-- Text element stays light purple and handles click events -->
+                <Text id="evasion" text="0" color="#A78BFA" fontSize="28" fontStyle="Bold" height="46" />
+                
+                <Text text="Click value to edit" class="sub-label" height="14" wrapText="false" />
+            </VerticalLayout>
 
-    <TableLayout cellSpacing="8" cellPadding="10 10 0 0" useGlobalCellPadding="true" columnWidths="118 78 118 78 118" id="thresholds" width="640" height="100" rectAlignment="UpperCenter" offsetXY="0 -48">
-        <Row height="100">
-            <Cell><Text text="Minor Damage" class="txt_sublabel" textAlignment="MiddleCenter" /></Cell>
-            <Cell class="shield"><Text id="first_threshold" text="2" class="txt_value" textAlignment="MiddleCenter" /></Cell>
-            <Cell><Text text="Major Damage" class="txt_sublabel" textAlignment="MiddleCenter" /></Cell>
-            <Cell class="shield"><Text id="second_threshold" text="5" class="txt_value" textAlignment="MiddleCenter" /></Cell>
-            <Cell><Text text="Severe Damage" class="txt_sublabel" textAlignment="MiddleCenter" /></Cell>
-        </Row>
-    </TableLayout>
+            <!-- Armor Score Box -->
+            <VerticalLayout color="#181A20" outline="#374151" outlineSize="1 1" padding="6" spacing="2">
+                <!-- Header -->
+                <HorizontalLayout height="20">
+                    <Text text="ARMOR SCORE" class="stat-label" alignment="MiddleLeft" wrapText="false" />
+                    <Button id="set_max_armor" text="SET MAX" width="60" fontSize="9" height="18" />
+                </HorizontalLayout>
 
-    <Panel rectAlignment="UpperCenter" offsetXY="0 -152" width="620" height="2" class="divider" />
+                <!-- Score Controls -->
+                <HorizontalLayout height="34" spacing="6">
+                    <Button id="lose_armor" text="-" width="30" fontSize="16" />
+                    <Text id="armor_display" text="0" color="#60A5FA" fontSize="24" fontStyle="Bold" />
+                    <Button id="gain_armor" text="+" width="30" fontSize="16" />
+                </HorizontalLayout>
 
-    <!-- HP Row -->
-    <Panel rectAlignment="MiddleCenter" offsetXY="0 38" width="640" height="100">
-        <Text rectAlignment="MiddleLeft" offsetXY="16 0" text="HP" class="txt_label" />
-        <Image id="suffer_hp" class="suffer" width="44" height="44" rectAlignment="MiddleLeft" offsetXY="72 0" />
-        <GridLayout class="bg_accent" id="hp" rectAlignment="MiddleCenter" offsetXY="0 -10" width="300" height="100" childAlignment="MiddleCenter" spacing="7" cellSize="38 38"  />
-        <Image id="recover_hp" class="recover" width="44" height="44" rectAlignment="MiddleRight" offsetXY="-58 0" />
-        <Image tooltip="Set Max HP" id="set_max_hp" class="config" width="38" height="38" rectAlignment="MiddleRight" offsetXY="-10 0" />
-    </Panel>
+                <!-- Grid wraps armor shields into max 9 icons per row (up to 18 total) -->
+                <GridLayout id="armor_slots" cellSize="18 18" spacing="3 3" constraint="FixedColumnCount" constraintCount="9" childAlignment="MiddleCenter" height="44" />
+            </VerticalLayout>
 
-    <Panel rectAlignment="MiddleCenter" offsetXY="0 -18" width="620" height="2" class="divider" />
-
-    <!-- Stress Row -->
-    <Panel rectAlignment="LowerCenter" offsetXY="0 26" width="640" height="100">
-        <Text rectAlignment="MiddleLeft" offsetXY="0 70" text="STRESS" class="txt_label" />
-        <Image id="suffer_stress" class="suffer" width="44" height="44" rectAlignment="MiddleLeft" offsetXY="112 -15" />
-        <GridLayout class="bg_accent" id="stress" rectAlignment="MiddleCenter" offsetXY="0 -10" width="300" height="100" childAlignment="MiddleCenter" spacing="7" cellSize="38 38" />
-        <Image id="recover_stress" class="recover" width="44" height="44" rectAlignment="MiddleRight" offsetXY="-112 -15" />
-        <Image tooltip="Set Max Stress" id="set_max_stress" class="config" width="38" height="38" rectAlignment="MiddleRight" offsetXY="-215 68" />
-    </Panel>
-</Panel>
-
-<!-- LEFT PANEL -->
-<Panel showAnimation="FadeIn" id="LeftPanel" class="bg_main" width="560" height="430" position="-320 0 -50" scale=".75 .75 .75">
-
-    <Panel rectAlignment="UpperCenter" width="560" height="46" class="bg_accent">
-        <Text rectAlignment="MiddleCenter" text="ARMOR AND STATS" class="txt_header" />
-    </Panel>
-
-    <!-- HOPE Section -->
-    <Panel rectAlignment="UpperCenter" offsetXY="0 -60" width="540" height="148">
-        <Text rectAlignment="UpperLeft" offsetXY="0 60" text="HOPE" class="txt_label" fontSize="22" />
-        <Image tooltip="Set Max Hope" id="set_max_hope" class="config" width="38" height="38" rectAlignment="UpperCenter" offsetXY="70 5" />
-        <Image id="lose_hope" class="suffer" width="44" height="44" rectAlignment="MiddleLeft" offsetXY="16 8" />
-        <GridLayout class="bg_accent" id="hope" rectAlignment="MiddleCenter" offsetXY="0 8" width="310" height="52" childAlignment="MiddleCenter" spacing="7" cellSize="38 38">
-            <Image id="hope_1" class="hope-filled" />
-            <Image id="hope_2" class="hope-filled" />
-            <Image id="hope_3" class="hope" />
-            <Image id="hope_4" class="hope" />
-            <Image id="hope_5" class="hope" />
-            <Image id="hope_6" class="hope" />
         </GridLayout>
-        <Image id="gain_hope" class="recover" width="44" height="44" rectAlignment="MiddleRight" offsetXY="-16 8" />
-    </Panel>
 
-    <Panel rectAlignment="MiddleCenter" offsetXY="0 36" width="520" height="2" class="divider" />
+        <!-- ======================================================= -->
+        <!-- 2. DAMAGE THRESHOLDS - 3 Column Grid                    -->
+        <!-- ======================================================= -->
+        <GridLayout cellSize="172 70" spacing="10 0" height="70">
+            
+            <!-- Minor Damage -->
+            <VerticalLayout color="#181A20" outline="#374151" outlineSize="1 1" padding="4" spacing="1">
+                <Text text="MINOR DAMAGE" fontSize="9" color="#9CA3AF" height="14" wrapText="false" />
+                
+                <!-- Dynamic Minor Damage text updated via Lua -->
+                <Text id="minor_damage_display" text="1 - 5" fontSize="16" color="#FFFFFF" fontStyle="Bold" height="20" wrapText="false" />
+                
+                <Text text="Mark 1 HP" class="sub-label" color="#D1D5DB" height="12" wrapText="false" />
+            </VerticalLayout>
 
-    <!-- ARMOR Section -->
-    <Panel rectAlignment="LowerCenter" offsetXY="0 10" width="540" height="220">
-        <Text rectAlignment="UpperLeft" offsetXY="0 70" text="ARMOR SLOTS" class="txt_label" fontSize="22" />
-        <Image tooltip="Set Max Armor" id="set_max_armor" class="config" width="38" height="38" rectAlignment="UpperCenter" offsetXY="115 -22" />
-        <Image id="lose_armor" class="suffer" width="44" height="44" rectAlignment="MiddleLeft" offsetXY="16 -10" />
-        <GridLayout class="bg_accent" id="armor_slots" rectAlignment="MiddleCenter" offsetXY="0 -10" width="400" height="100" childAlignment="MiddleCenter" spacing="7" cellSize="38 38" />
-        <Image id="gain_armor" class="recover" width="44" height="44" rectAlignment="MiddleRight" offsetXY="-16 -10" />
-    </Panel>
+            <!-- Major Damage (Clickable) -->
+            <VerticalLayout color="#181A20" outline="#374151" outlineSize="1 1" padding="4" spacing="1">
+                <Text text="MAJOR DAMAGE" fontSize="9" color="#FBBF24" height="14" wrapText="false" />
+                
+                <!-- Text element stays gold (#FBBF24) and handles click events -->
+                <Text id="first_threshold" text="0" color="#FBBF24" fontSize="20" fontStyle="Bold" height="22" />
+                
+                <Text text="Mark 2 HP" class="sub-label" color="#D1D5DB" height="12" wrapText="false" />
+            </VerticalLayout>
+
+            <!-- Severe Damage (Clickable) -->
+            <VerticalLayout color="#181A20" outline="#374151" outlineSize="1 1" padding="4" spacing="1">
+                <Text text="SEVERE DAMAGE" fontSize="9" color="#EF4444" height="14" wrapText="false" />
+                
+                <!-- Text element stays red (#EF4444) and handles click events -->
+                <Text id="second_threshold" text="0" color="#EF4444" fontSize="20" fontStyle="Bold" height="22" />
+                
+                <Text text="Mark 3 HP" class="sub-label" color="#D1D5DB" height="12" wrapText="false" />
+            </VerticalLayout>
+
+        </GridLayout>
+
+        <!-- ======================================================= -->
+        <!-- 3. RESOURCE TRACKERS (HP, STRESS, HOPE)                 -->
+        <!-- ======================================================= -->
+        <VerticalLayout spacing="6">
+            
+            <!-- HP Tracker Row -->
+            <HorizontalLayout height="44" color="#181A20" outline="#374151" outlineSize="1 1" padding="4" spacing="6">
+                <Button id="set_max_hp" text="⚙" width="28" fontSize="12" color="#374151" hoverColor="#4B5563" />
+                <Text text="HP" width="55" alignment="MiddleLeft" wrapText="false" fontSize="13" color="#EF4444" />
+                <Button id="suffer_hp" width="32" text="-" fontSize="18" />
+                
+                <GridLayout id="hp" cellSize="22 22" spacing="2 2" constraint="FixedRowCount" constraintCount="1" childAlignment="MiddleCenter" height="28" color="#111827" />
+                
+                <Button id="recover_hp" width="32" text="+" fontSize="18" />
+            </HorizontalLayout>
+
+            <!-- Stress Tracker Row -->
+            <HorizontalLayout height="44" color="#181A20" outline="#374151" outlineSize="1 1" padding="4" spacing="6">
+                <Button id="set_max_stress" text="⚙" width="28" fontSize="12" color="#374151" hoverColor="#4B5563" />
+                <Text text="STRESS" width="55" alignment="MiddleLeft" wrapText="false" fontSize="11" color="#F59E0B" />
+                <Button id="suffer_stress" width="32" text="-" fontSize="18" />
+                
+                <GridLayout id="stress" cellSize="22 22" spacing="2 2" constraint="FixedRowCount" constraintCount="1" childAlignment="MiddleCenter" height="28" color="#111827" />
+                
+                <Button id="recover_stress" width="32" text="+" fontSize="18" />
+            </HorizontalLayout>
+
+            <!-- Hope Tracker Row -->
+            <HorizontalLayout height="44" color="#181A20" outline="#374151" outlineSize="1 1" padding="4" spacing="6">
+                <Button id="set_max_hope" text="⚙" width="28" fontSize="12" color="#374151" hoverColor="#4B5563" />
+                <Text text="HOPE" width="55" alignment="MiddleLeft" wrapText="false" fontSize="12" color="#3B82F6" />
+                <Button id="lose_hope" width="32" text="-" fontSize="18" />
+                
+                <GridLayout id="hope" cellSize="24 24" spacing="4 2" constraint="FixedRowCount" constraintCount="1" childAlignment="MiddleCenter" height="28" color="#111827">
+                    <Image id="hope_1" image="https://steamusercontent-a.akamaihd.net/ugc/12670953746498142696/BE3FF12AC9766F669C026E325E3A14FB21FAC75C/" />
+                    <Image id="hope_2" image="https://steamusercontent-a.akamaihd.net/ugc/12670953746498142696/BE3FF12AC9766F669C026E325E3A14FB21FAC75C/" />
+                    <Image id="hope_3" image="https://steamusercontent-a.akamaihd.net/ugc/12670953746498142696/BE3FF12AC9766F669C026E325E3A14FB21FAC75C/" />
+                    <Image id="hope_4" image="https://steamusercontent-a.akamaihd.net/ugc/12670953746498142696/BE3FF12AC9766F669C026E325E3A14FB21FAC75C/" />
+                    <Image id="hope_5" image="https://steamusercontent-a.akamaihd.net/ugc/12708366135666346318/BB64E4C4F488D80BE6E4F71C3338027600E499AF/" />
+                    <Image id="hope_6" image="https://steamusercontent-a.akamaihd.net/ugc/12708366135666346318/BB64E4C4F488D80BE6E4F71C3338027600E499AF/" />
+                </GridLayout>
+                
+                <Button id="gain_hope" width="32" text="+" fontSize="18" />
+            </HorizontalLayout>
+
+        </VerticalLayout>
+
+    </VerticalLayout>
 </Panel>
 StopXML--xml]]
 require("src.data.config")
@@ -136,33 +167,31 @@ function onLoad()
     Wait.frames(function()
         local guid = self.getGUID()
 
-        -- Right Panel
+        -- Stats Panel
         self.UI.setAttribute("suffer_hp", "onClick", guid .. "/UI_LoseVariable(hp)")
         self.UI.setAttribute("recover_hp", "onClick", guid .. "/UI_GainVariable(hp)")
         self.UI.setAttribute("suffer_stress", "onClick", guid .. "/UI_LoseVariable(stress)")
         self.UI.setAttribute("recover_stress", "onClick", guid .. "/UI_GainVariable(stress)")
-        
+
         self.UI.setAttribute("set_max_hp", "onClick", guid .. "/UI_SetVariable(max_hp)")
         self.UI.setAttribute("set_max_stress", "onClick", guid .. "/UI_SetVariable(max_stress)")
         self.UI.setAttribute("first_threshold", "onClick", guid .. "/UI_SetVariable(first_threshold)")
         self.UI.setAttribute("second_threshold", "onClick", guid .. "/UI_SetVariable(second_threshold)")
+        self.UI.setAttribute("evasion", "onClick", guid .. "/UI_SetVariable(evasion)")
 
-        -- Left Panel
         self.UI.setAttribute("lose_hope", "onClick", guid .. "/UI_LoseVariable(hope)")
         self.UI.setAttribute("gain_hope", "onClick", guid .. "/UI_GainVariable(hope)")
         self.UI.setAttribute("lose_armor", "onClick", guid .. "/UI_LoseVariable(armor)")
         self.UI.setAttribute("gain_armor", "onClick", guid .. "/UI_GainVariable(armor)")
 
         self.UI.setAttribute("set_max_armor", "onClick", guid .. "/UI_SetVariable(max_armor)")
-        
-        
+
         -- self.UI.hide("main")
         -- self.UI.hide("ConditionMenu")
         -- self.UI.hide("ReminderMenu")
 
-        -- hidePanel("RightPanel")
-        -- hidePanel("LeftPanel")
-            
+        -- hidePanel("StatsPanel")
+
     end, 20)
 
 
@@ -195,11 +224,12 @@ function ClickLink(_, player_color)
     else
         InjectMini(data.token)
     end
-    
+
     if showing_ui == false then
-        showPanel("RightPanel")
-        showPanel("LeftPanel")
+        showPanel("StatsPanel")
         setThresholds(data.first_threshold or 0, data.second_threshold or 0)
+        setEvasion(data.evasion or 0)
+        setArmorDisplay(data.armor or data.max_armor or 0)
         showing_ui = true
         utils.pingObject(player_color, data.token)
     end
@@ -727,7 +757,21 @@ end
 function setThresholds(first, second)
     self.UI.setAttribute("first_threshold", "text", first)
     self.UI.setAttribute("second_threshold", "text", second)
-    -- utils.appendData(self, {first_threshold = first, second_threshold = second})
+    
+    local firstNum = tonumber(first) or 0
+    if firstNum > 1 then
+        self.UI.setAttribute("minor_damage_display", "text", "1 - " .. (firstNum - 1))
+    else
+        self.UI.setAttribute("minor_damage_display", "text", "0")
+    end
+end
+
+function setEvasion(value)
+    self.UI.setAttribute("evasion", "text", value)
+end
+
+function setArmorDisplay(value)
+    self.UI.setAttribute("armor_display", "text", value)
 end
 
 
@@ -853,6 +897,7 @@ function loseArmor()
         if not image or image == imageAssets.armor.color.filled then
             self.UI.setAttribute("armor_"..i, "color", imageAssets.armor.color.empty)
             utils.appendData(self, {armor = i - 1})
+            self.UI.setAttribute("armor_display", "text", i - 1)
             linked.call("loseArmor")
             return
         end
@@ -867,6 +912,7 @@ function gainArmor()
         if not color or color == imageAssets.armor.color.empty then
             self.UI.setAttribute("armor_"..i, "color", imageAssets.armor.color.filled)
             utils.appendData(self, {armor = i })
+            self.UI.setAttribute("armor_display", "text", i)
             linked.call("gainArmor")
             return
         end
