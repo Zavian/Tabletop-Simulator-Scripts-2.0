@@ -144,6 +144,12 @@ function changeHP(amount)
     if (tonumber(data.hp) > tonumber(data.maxHp)) then data.hp = data.maxHp end
     self.UI.setValue("smallhp", barString("□", "■", data.hp, data.maxHp))
 
+    if (tonumber(data.hp) < tonumber(data.maxHp)/2) then
+        toggleCondition("bloodied", "true")
+    else
+        toggleCondition("bloodied", "false")
+    end
+
     event.broadcast(
         event.EVENT_NAMES.monster_hp_update, 
         {hp = data.hp, obj_guid = self.getGUID()}
@@ -171,6 +177,18 @@ function changeStress(amount)
         self.UI.setAttribute("smallstress", "color", "Black")
     end
     if (tonumber(data.stress) > tonumber(data.maxStress)) then data.stress = data.maxStress end
+
+    if (tonumber(data.stress) < tonumber(data.maxStress)/2) then
+        toggleCondition("stressed", "true")
+    else
+        toggleCondition("stressed", "false")
+    end
+
+    if (tonumber(data.stress) == 0) then
+        toggleCondition("stressed", "false")
+        toggleCondition("vulnerable", "true")
+    end 
+
     self.UI.setValue("smallstress", barString("□", "■", data.stress, data.maxStress))
 
     event.broadcast(
@@ -499,7 +517,7 @@ function setupDMUI()
                 <Image id="restrained" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["restrained"].url..[["  active="false" />
                 <Image id="vulnerable" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["vulnerable"].url..[[" rotation="0 0 180"  active="false" />
                 <Image id="stressed" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["stressed"].url..[["  active="false" />
-                <Image id="bloodied" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["bloodied"].url..[["  active="false" />
+                <Image id="bloodied" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["bloodied"].url..[["  rotation="0 0 180" active="false" />
                 <Image id="hidden" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["hidden"].url..[["  active="false" visibility="Black" />
             </GridLayout>
         ]]
@@ -524,15 +542,22 @@ function setupDMUI()
     end, 0.75)
 end
 
-function toggleCondition(conditionName)
-    local conditionState = nil
-    if (self.UI.getAttribute(conditionName, "active") == "true") then
-        conditionState = "false"
-    else
-        conditionState = "true"
+function toggleCondition(conditionName, state)
+    local conditionState = state
+    if (conditionState == nil) then
+        conditionState = self.UI.getAttribute(conditionName, "active") == "true" and "false" or "true"
     end
 
     self.UI.setAttribute(conditionName, "active", conditionState)
+end
+
+function setHiddenCondition()
+    self.UI.setAttribute("hidden", "active", "true")
+
+end
+
+function clearHiddenCondition()
+    self.UI.setAttribute("hidden", "active", "false")
 end
 
 function hasScriptingTags(obj)
@@ -554,17 +579,18 @@ function toggleVisibilityMenu(player_color)
 
                 local c = objs[i].getColorTint()
                 objs[i].setColorTint({r=c.r, g=c.g, b=c.b, a=0.3})
-
+                objs[i].call("setHiddenCondition")
             else
                 objs[i].setInvisibleTo({})
 
                 local c = objs[i].getColorTint()
                 objs[i].setColorTint({r=c.r, g=c.g, b=c.b, a=1})
+                objs[i].call("clearHiddenCondition")
             end
-
             Global.call("updateFlyingVisibility", {guid = objs[i].getGUID(), visible = _visible})
 
-            toggleCondition("hidden")
+            -- toggleCondition("hidden")
+
         end
     end
 end
