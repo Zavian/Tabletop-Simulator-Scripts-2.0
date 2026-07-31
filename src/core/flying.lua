@@ -407,6 +407,8 @@ function Flying.updateVisibility(target_guid, visible)
         local shadow = target.getVar("groundIndicator")
         if shadow then
             shadow.setInvisibleTo(visible and {} or utils.hideFromPlayersArray())
+            shadow.setColorTint(visible and {0, 0, 0} or {0, 0, 0, 0.5})
+            shadow.UI.setAttribute("rangeLabel", "visibility", visible and "" or "Black")
         end
     end
 end
