@@ -53,6 +53,7 @@ local utils = require("src.core.utils")
 local updater = require("src.core.updater")
 local promise = require("src.core.promise")
 local movement_measurement = require("src.core.movement_measurement")
+local flying = require("src.core.flying")
 
 -- Load UI Manager
 
@@ -83,6 +84,16 @@ function onLoad(saved_data)
 
         local newNote = utils.getObjectByTag(OBJECT_TAGS.clever_notecard)
         utils.swapObjectInBagByTag(COMPONENTS.npc_commander, OBJECT_TAGS.clever_notecard, newNote)
+
+        -- Scan and initialize any existing flying tokens
+        local all_objs = getAllObjects()
+        for _, obj in ipairs(all_objs) do
+            if obj.hasTag(OBJECT_TAGS.flying) then
+                if obj.getVar("flyOffset") == nil then
+                    flying.create(obj)
+                end
+            end
+        end
     end)
 
     if saved_data then SAVED_DATA = JSON.decode(saved_data) end
@@ -126,6 +137,13 @@ function onObjectPickUp(player_color, pick_obj)
         end
         movement_measurement.onPickUp(pick_obj, player_color)
     end
+
+    if pick_obj.hasTag(OBJECT_TAGS.flying) then
+        if pick_obj.getVar("flyOffset") == nil then
+            flying.create(pick_obj)
+        end
+        flying.onPickUp(pick_obj, player_color)
+    end
 end
 
 function onObjectDrop(player_color, drop_obj)
@@ -135,6 +153,14 @@ function onObjectDrop(player_color, drop_obj)
     if drop_obj.hasTag(OBJECT_TAGS.movement_measurement) then
         movement_measurement.onDrop(drop_obj)
     end
+
+    if drop_obj.hasTag(OBJECT_TAGS.flying) then
+        flying.onDrop(drop_obj)
+    end
+end
+
+function resetFlyButton(obj, color)
+    flying.resetFlyButton(obj, color)
 end
 
 function initializeTableComponents()
@@ -170,295 +196,448 @@ function list()
     EventDispatcher.list()
 end
 
+function registerGroundIndicator(params)
+    flying.registerGroundIndicator(params)
+end
+
+function initializeFlying(params)
+    if not params or not params.guid then return end
+    local target = getObjectFromGUID(params.guid)
+    if target then
+        if target.getVar("flyOffset") == nil then
+            flying.create(target)
+        end
+    end
+end
+
+function updateFlyingVisibility(params)
+    if not params or not params.guid then return end
+    flying.updateVisibility(params.guid, params.visible)
+end
+
 function onSave()
     local saved_data = JSON.encode(SAVED_DATA)
     self.script_state = saved_data
     return self.script_state
 end
 end)
-__bundle_register("src.core.movement_measurement", function(require, _LOADED, __bundle_register, __bundle_modules)
+__bundle_register("src.core.flying", function(require, _LOADED, __bundle_register, __bundle_modules)
 local utils = require("src.core.utils")
 require("src.data.config")
 
-local MovementMeasurement = {}
+local Flying = {}
 
-MovementMeasurement.my_token = nil
-move_token = nil
-MovementMeasurement.measuring = { }
-MovementMeasurement.timers = {}
+local OFFSET_VALUE = Grid.sizeX or 2
 
-local ENABLE_AUTO_SNAP = (SAVED_DATA.PLAYER[player_color] and SAVED_DATA.PLAYER[player_color].autoSnap ~= nil) or true
-local SNAP_THRESHOLD = 10
-
-local MEASUREMENT_TIMEOUT = 5
-
-function MovementMeasurement.create(target)
-    target.addTag(OBJECT_TAGS.movement_measurement)
-    MovementMeasurement.measuring[target.guid] = false
-    target.addContextMenuItem("Toggle measurement", 
-    function(player_color)
-        MovementMeasurement.measuring[target.guid] = not MovementMeasurement.measuring[target.guid]
-        if MovementMeasurement.measuring[target.guid] then
-            MovementMeasurement.createMoveToken(target, player_color, true)
-            MovementMeasurement.resetTimer(target, player_color)
-        else 
-            MovementMeasurement.destroyMoveToken(target)
-            MovementMeasurement.cancelTimer(target.guid)
-        end
-    end)
-
-    target.addContextMenuItem("Toggle auto snap",
-    function(player_color)
-        ENABLE_AUTO_SNAP = not ENABLE_AUTO_SNAP
-        if ENABLE_AUTO_SNAP then
-            Utils.success("Auto snap enabled", player_color)
-        else
-            Utils.error("Auto snap disabled", player_color)
-        end
-
-        -- TODO: Implement the global save function
-        -- Utils.updateGlobalSave({player_color .. ".autoSnap", ENABLE_AUTO_SNAP})
-        SAVED_DATA.PLAYER[player_color] = SAVED_DATA.PLAYER[player_color] or {}
-        SAVED_DATA.PLAYER[player_color].autoSnap = ENABLE_AUTO_SNAP
-    end)
-end
-
-function MovementMeasurement.onPickUp(obj, player_color)
-    if MovementMeasurement.measuring[obj.guid] then
-        MovementMeasurement.resetTimer(obj, player_color)
-        return
-    end
-    MovementMeasurement.createMoveToken(obj, player_color, true)
-    MovementMeasurement.resetTimer(obj, player_color)
-end
-
-function MovementMeasurement.onDrop(obj, player_color)
-    if MovementMeasurement.measuring[obj.guid] then return end
-    MovementMeasurement.destroyMoveToken(obj, player_color)
-    MovementMeasurement.cancelTimer(obj.guid)
-    obj.use_snap_points = false
-end
-
-
-function MovementMeasurement.resetTimer(obj, player_color)
-    MovementMeasurement.cancelTimer(obj.guid)
-    local guid = obj.guid
-    local timerId = Wait.time(function()
-        -- only auto-clear if still in measuring mode
-        if MovementMeasurement.measuring[guid] then
-            MovementMeasurement.measuring[guid] = false
-            local target = getObjectFromGUID(guid)
-            if target then
-                MovementMeasurement.destroyMoveToken(target, player_color)
-            end
-        end
-        MovementMeasurement.timers[guid] = nil
-    end, MEASUREMENT_TIMEOUT)
-    MovementMeasurement.timers[guid] = timerId
-end
-
-function MovementMeasurement.cancelTimer(guid)
-    if MovementMeasurement.timers[guid] then
-        Wait.stop(MovementMeasurement.timers[guid])
-        MovementMeasurement.timers[guid] = nil
-    end
-end
-
-function MovementMeasurement.createMoveToken(my_token, player_color, show_only_to_player)
-    local tokenRot = Player[player_color].getPointerRotation()
-    local movetokenparams = {
-        image = "http://cloud-3.steamusercontent.com/ugc/1021697601906583980/C63D67188FAD8B02F1B58E17C7B1DB304B7ECBE3/",
-        thickness = 0.1,
-        type = 2
-    }
-    local startloc = my_token.getPosition() + Vector(0, 0.1, 0)
-    local hitList =
-        Physics.cast(
-        {
-            origin = my_token.getBounds().center,
-            direction = {0, -1, 0},
-            type = 1,
-            max_distance = 10,
-            debug = false
-        }
-    )
-    for _, hitTable in ipairs(hitList) do
-        if hitTable ~= nil and hitTable.point ~= nil and hitTable.hit_object ~= my_token then
-            startloc = hitTable.point
-            break
-        end
-    end
-    local tokenScale = {
-        x = Grid.sizeX / 4.7,
-        y = 1,
-        z = Grid.sizeX / 4.7,
-    }
-    local spawnparams = {
-        type = "Custom_Token",
-        position = startloc,
-        rotation = {x = 0, y = 0, z = 0},
-        scale = tokenScale,
-        sound = false
-    }
-
-    local move_token = spawnObject(spawnparams)
-    move_token.ignore_fog_of_war = true
-
-    move_token.setSnapPoints({
-        { position = {0,0,0} }
-    })
-
-    my_token.setVar("moveToken", move_token)
-
-    move_token.setLock(true)
-    move_token.setCustomObject(movetokenparams)
-    move_token.setVar("measuredObject", my_token)
-    move_token.setVar("myPlayer", player_color)
-    move_token.setVar("className", "MeasurementToken_Move")
-
-    move_token.getComponent("BoxCollider").set("enabled",false)
-
-    if not ENABLE_AUTO_SNAP then
-        SNAP_THRESHOLD = math.huge
-    end
-
-
-    move_token.setVar("snapThreshold", SNAP_THRESHOLD)
-
-    if show_only_to_player then
-        move_token.setInvisibleTo(utils.hideFromAllButPlayer(player_color))
-    end
-    local moveButtonParams = {
-        click_function = "onLoad",
-        function_owner = self,
-        label = "00",
-        position = {x = 0, y = 0.1, z = 0},
-        width = 0,
-        height = 0,
-        font_size = 600
-    }
-    move_token.createButton(moveButtonParams)
-
-    local luaScript = [[
-    local gridSize = Grid.sizeX or 2
-local measuredObject = nil
-local currentRange = nil
-local snapThreshold = nil
-local snappingEnabled = false
-
-local ranges = {
-    veryClose = {
-        radius = 3.5,
-        color = {0, 0.659, 0.976}
-    },
-    close = {
-        radius = 6.5,
-        color = {0.204, 0.91, 0}
-    },
-    far = {
-        radius = 12.5,
-        color = {0.918, 0.416, 0}
-    }
+local RANGE_COLORS = {
+    melee     = {0, 0.4550, 0.8510, 1},
+    veryClose = {0, 0.659, 0.976, 1},
+    close     = {0.204, 0.91, 0, 1},
+    far       = {0.918, 0.416, 0, 1},
+    veryFar   = {0.91, 0.169, 0.169, 1}
 }
 
-local rangeOrder = {"veryClose", "close", "far"}
+local RANGE_LABELS = {
+    melee     = "Melee",
+    veryClose = "Very\nClose",
+    close     = "Close",
+    far       = "Far",
+    veryFar   = "Very\nFar"
+}
+
+function Flying.create(target)
+    target.addTag(OBJECT_TAGS.flying)
+    
+    -- Add context menus
+    target.addContextMenuItem("Fly Up", function(player_color)
+        Flying.flyUp(target, player_color)
+    end, true)
+    target.addContextMenuItem("Fly Down", function(player_color)
+        Flying.flyDown(target, player_color)
+    end, true)
+
+    -- Create fly height button if it doesn't exist
+    if not Flying.getFlyButtonIndex(target) then
+        local bounds = target.getBounds()
+        local z_pos = bounds.size.z * 0.45
+        if z_pos < 0.35 then z_pos = 0.35 end
+        if z_pos > 1.3 then z_pos = 1.3 end
+        
+        target.createButton({
+            click_function = "resetFlyButton",
+            function_owner = self,
+            label = "",
+            position = {x = 1.3, y = 0.05, z = z_pos},
+            rotation = {0, 0, 0},
+            width = 600,
+            height = 475,
+            font_size = 300,
+            color = {0, 0.4550, 0.8510, 0},
+            font_color = {1, 1, 1, 0},
+            tooltip = "Height",
+            scale = {0.3, 0.3, 0.3}
+        })
+    end
+
+    target.setVar("flyOffset", 0)
+    target.setVar("isFloating", false)
+    target.setVar("groundIndicator", nil)
+end
+
+function Flying.getFlyButtonIndex(target)
+    local buttons = target.getButtons()
+    if not buttons then return nil end
+    for _, btn in ipairs(buttons) do
+        if btn.click_function == "resetFlyButton" then
+            return btn.index
+        end
+    end
+    return nil
+end
+
+function Flying.flyUp(target, player_color)
+    if not target.hasTag(OBJECT_TAGS.player) and player_color ~= "Black" then return end
+    local currentOffset = target.getVar("flyOffset") or 0
+    
+    if currentOffset == 0 then
+        local pos = target.getPosition()
+        target.setPosition({pos.x, pos.y + 0.5, pos.z})
+    end
+
+    local nextOffset = currentOffset + OFFSET_VALUE
+    target.setVar("flyOffset", nextOffset)
+    Flying.setFloat(target, nextOffset)
+end
+
+function Flying.flyDown(target, player_color)
+    if not target.hasTag(OBJECT_TAGS.player) and player_color ~= "Black" then return end
+    local currentOffset = target.getVar("flyOffset") or 0
+    if currentOffset > 0 then
+        local nextOffset = currentOffset - OFFSET_VALUE
+        target.setVar("flyOffset", nextOffset)
+        Flying.setFloat(target, nextOffset)
+    end
+end
+
+function Flying.resetFlyButton(target, player_color)
+    if not target.hasTag(OBJECT_TAGS.player) and player_color ~= "Black" then return end
+    target.setVar("flyOffset", 0)
+    Flying.setFloat(target, 0)
+end
+
+function Flying.setFloat(target, offset)
+    if offset == 0 then
+        target.setVar("isFloating", false)
+        target.use_gravity = true
+        Flying.destroyGroundIndicator(target)
+    else
+        target.setVar("isFloating", true)
+        target.use_gravity = false
+        Flying.spawnGroundIndicator(target, offset)
+    end
+    Flying.updateHeightButton(target, offset)
+end
+
+function Flying.getRangeBand(squares)
+    if squares <= 1.5 then return "melee"
+    elseif squares <= 3 then return "veryClose"
+    elseif squares <= 6 then return "close"
+    elseif squares <= 12 then return "far"
+    else return "veryFar"
+    end
+end
+
+function Flying.updateHeightButton(target, offset)
+    local btnIndex = Flying.getFlyButtonIndex(target)
+    if not btnIndex then return end
+
+    if offset == 0 then
+        target.editButton({
+            index = btnIndex,
+            font_color = {1, 1, 1, 0},
+            color = {0, 0.4550, 0.8510, 0}
+        })
+    else
+        local squares = offset / OFFSET_VALUE
+        local band = Flying.getRangeBand(squares)
+        target.editButton({
+            index = btnIndex,
+            font_color = {1, 1, 1, 1},
+            color = RANGE_COLORS[band],
+            label = "+" .. math.floor(squares * 5)
+        })
+    end
+end
+
+function Flying.spawnGroundIndicator(target, offset)
+    local guid = target.getGUID()
+    local indicator = target.getVar("groundIndicator")
+    if indicator then
+        indicator.setVar("flyOffset", offset)
+        indicator.call("updateLabel")
+        return
+    end
+
+    local bounds = target.getBounds()
+    local size = math.max(bounds.size.x, bounds.size.z) * 0.45
+    local pos = target.getPosition()
+    local groundY = Flying.getGroundHeight(target)
+
+    local isVisible = true
+    if target.getVar("is_visible") then
+        local success, res = pcall(function() return target.call("is_visible") end)
+        if success and res ~= nil then
+            isVisible = res
+        end
+    end
+
+    local invisible_players = {}
+    if not isVisible then
+        invisible_players = utils.hideFromPlayersArray()
+    end
+
+    spawnObject({
+        type = "reversi_chip",
+        position = {pos.x, groundY + 0.02, pos.z},
+        rotation = {0, 0, 0},
+        scale = {size, 0.02, size},
+        sound = false,
+        callback_function = function(obj)
+            target.setVar("groundIndicator", obj)
+            obj.setColorTint({0, 0, 0})
+            obj.setName("Height Base")
+            obj.sticky = false
+            obj.setInvisibleTo(invisible_players)
+
+            local originalTags = target.getTags()
+            if originalTags then
+                local filteredTags = {}
+                for _, tag in ipairs(originalTags) do
+                    if tag ~= OBJECT_TAGS.flying and tag ~= OBJECT_TAGS.movement_measurement then
+                        table.insert(filteredTags, tag)
+                    end
+                end
+                obj.setTags(filteredTags)
+            end
+
+            obj.addContextMenuItem("Fly Up", function(player_color)
+                Flying.flyUp(target, player_color)
+            end, true)
+            obj.addContextMenuItem("Fly Down", function(player_color)
+                Flying.flyDown(target, player_color)
+            end, true)
+            obj.addContextMenuItem("Reset Height", function(player_color)
+                Flying.resetFlyButton(target, player_color)
+            end, true)
+
+            local rot = target.getRotation()
+            obj.setRotation({0, rot.y, 0})
+
+            local luaScript = [[
+local targetGuid = "]] .. guid .. [["
+local flyOffset = ]] .. offset .. [[
+local ready = true
+
+local RANGE_COLORS = {
+    melee     = {0, 0.4550, 0.8510, 1},
+    veryClose = {0, 0.659, 0.976, 1},
+    close     = {0.204, 0.91, 0, 1},
+    far       = {0.918, 0.416, 0, 1},
+    veryFar   = {0.91, 0.169, 0.169, 1}
+}
+local RANGE_LABELS = {
+    melee     = "Melee",
+    veryClose = "Very\nClose",
+    close     = "Close",
+    far       = "Far",
+    veryFar   = "Very\nFar"
+}
+
+function colorToHex(c)
+    local function toHex(v)
+        return string.format("%02X", math.floor((v or 1) * 255 + 0.5))
+    end
+    return "#" .. toHex(c[1]) .. toHex(c[2]) .. toHex(c[3]) .. toHex(c[4])
+end
+
+function getRangeBand(squares)
+    if squares <= 1.5 then return "melee"
+    elseif squares <= 3 then return "veryClose"
+    elseif squares <= 6 then return "close"
+    elseif squares <= 12 then return "far"
+    else return "veryFar"
+    end
+end
 
 function onLoad()
-    measuredObject = self.getVar("measuredObject")
-    snapThreshold = self.getVar("snapThreshold") or 5
-    drawCircles("far")
-    currentRange = "far"
+    local target = getObjectFromGUID(targetGuid)
+    local labelText = ""
+    local fontColor = {1, 1, 1, 1}
+    
+    if target then
+        local currentOffset = self.getVar("flyOffset") or flyOffset
+        local offsetVal = Grid.sizeX or 2
+        local squares = currentOffset / offsetVal
+        local band = getRangeBand(squares)
+        labelText = RANGE_LABELS[band] or ""
+        fontColor = RANGE_COLORS[band] or {1, 1, 1, 1}
+    end
+
+    self.UI.setXml('<Text id="rangeLabel" text="' .. labelText .. '" color="' .. colorToHex(fontColor) .. '" fontSize="22" fontStyle="Bold" alignment="MiddleCenter" width="600" height="600" position="0 0 -150" rotation="0 0 180" outline="#000000FF" outlineSize="3 -3" /> ')
+    Global.call("registerGroundIndicator", {targetGuid = targetGuid, indicatorGuid = self.getGUID()})
+
+end
+
+function updateLabel()
+    local target = getObjectFromGUID(targetGuid)
+    if not target then return end
+    
+    local currentOffset = self.getVar("flyOffset") or flyOffset
+    local offsetVal = Grid.sizeX or 2
+    local squares = currentOffset / offsetVal
+    local band = getRangeBand(squares)
+    
+    self.UI.setAttribute("rangeLabel", "text", RANGE_LABELS[band] or "")
+    self.UI.setAttribute("rangeLabel", "color", colorToHex(RANGE_COLORS[band] or {1, 1, 1, 1}))
 end
 
 function onUpdate()
-    if measuredObject == nil or measuredObject.held_by_color == nil then
+    if not ready or not targetGuid then return end
+    local target = getObjectFromGUID(targetGuid)
+    if not target then
+        destroyObject(self)
         return
     end
-    
-    local mypos = self.getPosition()
-    local opos = measuredObject.getPosition()
-    
-    local mdiff = mypos - opos
-    local mDistance = math.abs(mdiff.x)
-    local zDistance = math.abs(mdiff.z)
-    
-    if zDistance > mDistance then
-        mDistance = zDistance
-    end
-    
-    mDistance = mDistance * gridSize
 
-    local rawDistance = math.sqrt(mdiff.x * mdiff.x + mdiff.z * mdiff.z)
-    if rawDistance >= snapThreshold and not snappingEnabled then
-        measuredObject.use_snap_points = true
-        snappingEnabled = true
-    end
+    if self.getVar("isTargetPickedUp") then return end
 
-    if mDistance <= 8.9 then 
-        self.editButton({index = 0, label = "Very\nClose"})
-        self.setColorTint(ranges.veryClose.color)
-    elseif mDistance > 8.9 and mDistance <= 17.7 then
-        self.editButton({index = 0, label = "Close"})
-        self.setColorTint(ranges.close.color)
-    elseif mDistance > 17.7 then
-        self.editButton({index = 0, label = "Far"})
-        self.setColorTint(ranges.far.color)
-    end
-end
+    local currentOffset = self.getVar("flyOffset") or flyOffset
 
-function drawCircles(maxRange)
-    local lines = {}
-    local scale = self.getScale()
-    
-    local maxIndex = 1
-    for i, rangeName in ipairs(rangeOrder) do
-        if rangeName == maxRange then
-            maxIndex = i
-            break
+    local shadowPos = self.getPosition()
+    local targetY = shadowPos.y + currentOffset
+    local selfPos = target.getPosition()
+
+    local isHeld = target.held_by_color ~= nil or self.held_by_color ~= nil
+    if not isHeld then
+        local players = Player.getPlayers()
+        for _, p in ipairs(players) do
+            local sel = p.getSelectedObjects()
+            if sel then
+                for _, sObj in ipairs(sel) do
+                    if sObj == target or sObj == self then
+                        isHeld = true
+                        break
+                    end
+                end
+            end
+            if isHeld then break end
         end
     end
-    
-    for i = 1, maxIndex do
-        local rangeName = rangeOrder[i]
-        local range = ranges[rangeName]
-        local adjustedRadius = (range.radius * gridSize) / scale.x
-        local points = generateCirclePoints({x = 0, y = 0, z = 0}, adjustedRadius)
-        
-        table.insert(lines, {
-            points = points,
-            color = range.color,
-            rotation = {0, 0, 0},
-            fill = true
-        })
-    end
-    
-    self.setVectorLines(lines)
-end
 
-function generateCirclePoints(center, radius)
-    local numSegments = 360
-    local angleIncrement = 360 / numSegments
-    local points = {}
-    for i = 0, numSegments do
-        local radians = math.rad(i * angleIncrement)
-        local x = center.x + radius * math.cos(radians)
-        local z = center.z + radius * math.sin(radians)
-        table.insert(points, {x, center.y, z})
-    end
-    return points
-end]]
-        
-    move_token.setLuaScript(luaScript)
-end
-
-function MovementMeasurement.destroyMoveToken(obj, player_color)
-    local move_token = obj.getVar("moveToken")
-    if move_token then
-        move_token.destroy()
+    if isHeld then
+        target.setPosition({shadowPos.x, targetY, shadowPos.z})
+        target.setVelocity({0, 0, 0})
+        target.setAngularVelocity({0, 0, 0})
+    else
+        if math.abs(selfPos.x - shadowPos.x) > 0.01 
+            or math.abs(selfPos.z - shadowPos.z) > 0.01 
+            or math.abs(selfPos.y - targetY) > 0.01 
+        then
+            target.setPositionSmooth({shadowPos.x, targetY, shadowPos.z}, false, false)
+        end
     end
 end
+]]
+            obj.setLuaScript(luaScript)
 
-return MovementMeasurement
+            Wait.condition(function()
+                obj.setLock(false)
+                obj.interactable = true
+                obj.use_gravity = true
+                obj.use_grid = false
+                obj.tooltip = true
+
+                local col = obj.getComponent("BoxCollider") or obj.getComponent("MeshCollider") or obj.getComponent("CapsuleCollider")
+                if col then
+                    col.set("enabled", true)
+                end
+            end, function() return not obj.loading_custom end)
+        end
+    })
+end
+
+function Flying.destroyGroundIndicator(target)
+    local indicator = target.getVar("groundIndicator")
+    if indicator then
+        destroyObject(indicator)
+        target.setVar("groundIndicator", nil)
+    end
+end
+
+function Flying.onPickUp(obj, player_color)
+    local shadow = obj.getVar("groundIndicator")
+    if shadow then
+        shadow.setVar("isTargetPickedUp", true)
+    end
+end
+
+function Flying.onDrop(obj, player_color)
+    local shadow = obj.getVar("groundIndicator")
+    if shadow then
+        shadow.setVar("isTargetPickedUp", false)
+        local pos = obj.getPosition()
+        local groundY = Flying.getGroundHeight(obj)
+        shadow.setPosition({pos.x, groundY + 0.02, pos.z})
+    end
+end
+
+function Flying.getGroundHeight(obj)
+    local pos = obj.getPosition()
+    local origin = {
+        x = pos.x,
+        y = pos.y + 0.1,
+        z = pos.z
+    }
+    local hitList = Physics.cast({
+        origin = origin,
+        direction = {0, -1, 0},
+        type = 1,
+        max_distance = 30,
+        debug = false
+    })
+    for _, hit in ipairs(hitList) do
+        if hit ~= nil and hit.hit_object ~= nil and hit.hit_object ~= obj then
+            local shadow = obj.getVar("groundIndicator")
+            if not shadow or hit.hit_object ~= shadow then
+                return hit.point.y
+            end
+        end
+    end
+    return 0
+end
+
+function Flying.registerGroundIndicator(params)
+    if not params or not params.targetGuid or not params.indicatorGuid then return end
+    local target = getObjectFromGUID(params.targetGuid)
+    local indicator = getObjectFromGUID(params.indicatorGuid)
+    if target and indicator then
+        target.setVar("groundIndicator", indicator)
+    end
+end
+
+function Flying.updateVisibility(target_guid, visible)
+    local target = getObjectFromGUID(target_guid)
+    if target then
+        local shadow = target.getVar("groundIndicator")
+        if shadow then
+            shadow.setInvisibleTo(visible and {} or utils.hideFromPlayersArray())
+            shadow.setColorTint(visible and {0, 0, 0} or {0, 0, 0, 0.5})
+            shadow.UI.setAttribute("rangeLabel", "visibility", visible and "" or "Black")
+        end
+    end
+end
+
+return Flying
 end)
 __bundle_register("src.data.config", function(require, _LOADED, __bundle_register, __bundle_modules)
 
@@ -612,6 +791,7 @@ OBJECT_TAGS = {
     boss_token = "boss_token",
     infinite_container = "infinite_container",
     movement_measurement = "movement_measurement",
+    flying = "flying",
     player = "player_token"
 }
 
@@ -1252,6 +1432,290 @@ function contextMenuFunction(player_color, tagToPull, varName)
 end
 
 return TargetedSpawn
+end)
+__bundle_register("src.core.movement_measurement", function(require, _LOADED, __bundle_register, __bundle_modules)
+local utils = require("src.core.utils")
+require("src.data.config")
+
+local MovementMeasurement = {}
+
+MovementMeasurement.my_token = nil
+move_token = nil
+MovementMeasurement.measuring = { }
+MovementMeasurement.timers = {}
+
+local ENABLE_AUTO_SNAP = (SAVED_DATA.PLAYER[player_color] and SAVED_DATA.PLAYER[player_color].autoSnap ~= nil) or true
+local SNAP_THRESHOLD = 10
+
+local MEASUREMENT_TIMEOUT = 5
+
+function MovementMeasurement.create(target)
+    target.addTag(OBJECT_TAGS.movement_measurement)
+    MovementMeasurement.measuring[target.guid] = false
+    target.addContextMenuItem("Toggle measurement", 
+    function(player_color)
+        MovementMeasurement.measuring[target.guid] = not MovementMeasurement.measuring[target.guid]
+        if MovementMeasurement.measuring[target.guid] then
+            MovementMeasurement.createMoveToken(target, player_color, true)
+            MovementMeasurement.resetTimer(target, player_color)
+        else 
+            MovementMeasurement.destroyMoveToken(target)
+            MovementMeasurement.cancelTimer(target.guid)
+        end
+    end)
+
+    target.addContextMenuItem("Toggle auto snap",
+    function(player_color)
+        ENABLE_AUTO_SNAP = not ENABLE_AUTO_SNAP
+        if ENABLE_AUTO_SNAP then
+            Utils.success("Auto snap enabled", player_color)
+        else
+            Utils.error("Auto snap disabled", player_color)
+        end
+
+        -- TODO: Implement the global save function
+        -- Utils.updateGlobalSave({player_color .. ".autoSnap", ENABLE_AUTO_SNAP})
+        SAVED_DATA.PLAYER[player_color] = SAVED_DATA.PLAYER[player_color] or {}
+        SAVED_DATA.PLAYER[player_color].autoSnap = ENABLE_AUTO_SNAP
+    end)
+end
+
+function MovementMeasurement.onPickUp(obj, player_color)
+    if MovementMeasurement.measuring[obj.guid] then
+        MovementMeasurement.resetTimer(obj, player_color)
+        return
+    end
+    MovementMeasurement.createMoveToken(obj, player_color, true)
+    MovementMeasurement.resetTimer(obj, player_color)
+end
+
+function MovementMeasurement.onDrop(obj, player_color)
+    if MovementMeasurement.measuring[obj.guid] then return end
+    MovementMeasurement.destroyMoveToken(obj, player_color)
+    MovementMeasurement.cancelTimer(obj.guid)
+    obj.use_snap_points = false
+end
+
+
+function MovementMeasurement.resetTimer(obj, player_color)
+    MovementMeasurement.cancelTimer(obj.guid)
+    local guid = obj.guid
+    local timerId = Wait.time(function()
+        -- only auto-clear if still in measuring mode
+        if MovementMeasurement.measuring[guid] then
+            MovementMeasurement.measuring[guid] = false
+            local target = getObjectFromGUID(guid)
+            if target then
+                MovementMeasurement.destroyMoveToken(target, player_color)
+            end
+        end
+        MovementMeasurement.timers[guid] = nil
+    end, MEASUREMENT_TIMEOUT)
+    MovementMeasurement.timers[guid] = timerId
+end
+
+function MovementMeasurement.cancelTimer(guid)
+    if MovementMeasurement.timers[guid] then
+        Wait.stop(MovementMeasurement.timers[guid])
+        MovementMeasurement.timers[guid] = nil
+    end
+end
+
+function MovementMeasurement.createMoveToken(my_token, player_color, show_only_to_player)
+    local tokenRot = Player[player_color].getPointerRotation()
+    local movetokenparams = {
+        image = "http://cloud-3.steamusercontent.com/ugc/1021697601906583980/C63D67188FAD8B02F1B58E17C7B1DB304B7ECBE3/",
+        thickness = 0.1,
+        type = 2
+    }
+    local startloc = my_token.getPosition() + Vector(0, 0.1, 0)
+    local hitList =
+        Physics.cast(
+        {
+            origin = my_token.getBounds().center,
+            direction = {0, -1, 0},
+            type = 1,
+            max_distance = 10,
+            debug = false
+        }
+    )
+    for _, hitTable in ipairs(hitList) do
+        if hitTable ~= nil and hitTable.point ~= nil and hitTable.hit_object ~= my_token then
+            startloc = hitTable.point
+            break
+        end
+    end
+    local tokenScale = {
+        x = Grid.sizeX / 4.7,
+        y = 1,
+        z = Grid.sizeX / 4.7,
+    }
+    local spawnparams = {
+        type = "Custom_Token",
+        position = startloc,
+        rotation = {x = 0, y = 0, z = 0},
+        scale = tokenScale,
+        sound = false
+    }
+
+    local move_token = spawnObject(spawnparams)
+    move_token.ignore_fog_of_war = true
+
+    move_token.setSnapPoints({
+        { position = {0,0,0} }
+    })
+
+    my_token.setVar("moveToken", move_token)
+
+    move_token.setLock(true)
+    move_token.setCustomObject(movetokenparams)
+    move_token.setVar("measuredObject", my_token)
+    move_token.setVar("myPlayer", player_color)
+    move_token.setVar("className", "MeasurementToken_Move")
+
+    move_token.getComponent("BoxCollider").set("enabled",false)
+
+    if not ENABLE_AUTO_SNAP then
+        SNAP_THRESHOLD = math.huge
+    end
+
+
+    move_token.setVar("snapThreshold", SNAP_THRESHOLD)
+
+    if show_only_to_player then
+        move_token.setInvisibleTo(utils.hideFromAllButPlayer(player_color))
+    end
+    local moveButtonParams = {
+        click_function = "onLoad",
+        function_owner = self,
+        label = "00",
+        position = {x = 0, y = 0.1, z = 0},
+        width = 0,
+        height = 0,
+        font_size = 600
+    }
+    move_token.createButton(moveButtonParams)
+
+    local luaScript = [[
+    local gridSize = Grid.sizeX or 2
+local measuredObject = nil
+local currentRange = nil
+local snapThreshold = nil
+local snappingEnabled = false
+
+local ranges = {
+    veryClose = {
+        radius = 3.5,
+        color = {0, 0.659, 0.976}
+    },
+    close = {
+        radius = 6.5,
+        color = {0.204, 0.91, 0}
+    },
+    far = {
+        radius = 12.5,
+        color = {0.918, 0.416, 0}
+    }
+}
+
+local rangeOrder = {"veryClose", "close", "far"}
+
+function onLoad()
+    measuredObject = self.getVar("measuredObject")
+    snapThreshold = self.getVar("snapThreshold") or 5
+    drawCircles("far")
+    currentRange = "far"
+end
+
+function onUpdate()
+    if measuredObject == nil or measuredObject.held_by_color == nil then
+        return
+    end
+    
+    local mypos = self.getPosition()
+    local opos = measuredObject.getPosition()
+    
+    local mdiff = mypos - opos
+    local mDistance = math.abs(mdiff.x)
+    local zDistance = math.abs(mdiff.z)
+    
+    if zDistance > mDistance then
+        mDistance = zDistance
+    end
+    
+    mDistance = mDistance * gridSize
+
+    local rawDistance = math.sqrt(mdiff.x * mdiff.x + mdiff.z * mdiff.z)
+    if rawDistance >= snapThreshold and not snappingEnabled then
+        measuredObject.use_snap_points = true
+        snappingEnabled = true
+    end
+
+    if mDistance <= 8.9 then 
+        self.editButton({index = 0, label = "Very\nClose"})
+        self.setColorTint(ranges.veryClose.color)
+    elseif mDistance > 8.9 and mDistance <= 17.7 then
+        self.editButton({index = 0, label = "Close"})
+        self.setColorTint(ranges.close.color)
+    elseif mDistance > 17.7 then
+        self.editButton({index = 0, label = "Far"})
+        self.setColorTint(ranges.far.color)
+    end
+end
+
+function drawCircles(maxRange)
+    local lines = {}
+    local scale = self.getScale()
+    
+    local maxIndex = 1
+    for i, rangeName in ipairs(rangeOrder) do
+        if rangeName == maxRange then
+            maxIndex = i
+            break
+        end
+    end
+    
+    for i = 1, maxIndex do
+        local rangeName = rangeOrder[i]
+        local range = ranges[rangeName]
+        local adjustedRadius = (range.radius * gridSize) / scale.x
+        local points = generateCirclePoints({x = 0, y = 0, z = 0}, adjustedRadius)
+        
+        table.insert(lines, {
+            points = points,
+            color = range.color,
+            rotation = {0, 0, 0},
+            fill = true
+        })
+    end
+    
+    self.setVectorLines(lines)
+end
+
+function generateCirclePoints(center, radius)
+    local numSegments = 360
+    local angleIncrement = 360 / numSegments
+    local points = {}
+    for i = 0, numSegments do
+        local radians = math.rad(i * angleIncrement)
+        local x = center.x + radius * math.cos(radians)
+        local z = center.z + radius * math.sin(radians)
+        table.insert(points, {x, center.y, z})
+    end
+    return points
+end]]
+        
+    move_token.setLuaScript(luaScript)
+end
+
+function MovementMeasurement.destroyMoveToken(obj, player_color)
+    local move_token = obj.getVar("moveToken")
+    if move_token then
+        move_token.destroy()
+    end
+end
+
+return MovementMeasurement
 end)
 __bundle_register("src.core.promise", function(require, _LOADED, __bundle_register, __bundle_modules)
 Promise = {}
