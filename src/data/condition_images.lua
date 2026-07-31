@@ -13,9 +13,10 @@ CONDITIONS = {
         url = "https://steamusercontent-a.akamaihd.net/ugc/2426949702261749880/B2B7FFA29ED39AAFCCD86AF675A5C9FDA54BFBE0/"
     },
     stressed = {
-        url = "https://steamusercontent-a.akamaihd.net/ugc/2426949702261749880/B2B7FFA29ED39AAFCCD86AF675A5C9FDA54BFBE0/"
+        url = "https://steamusercontent-a.akamaihd.net/ugc/2426949702261779853/442EA1D02948B229193FD827855B47EB45EBA1ED/"
     },
     bloodied = {
-        url = "https://steamusercontent-a.akamaihd.net/ugc/2426949702261749880/B2B7FFA29ED39AAFCCD86AF675A5C9FDA54BFBE0/"
+        url = "https://steamusercontent-a.akamaihd.net/ugc/2426950071414359910/C2D329195239E633ECFBC9D979D9BD7F17AFB665/",
+        rotation = "0 180 0"
     }
 }
