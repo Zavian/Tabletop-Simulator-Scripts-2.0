@@ -27,6 +27,20 @@ function onLoad(saved_data)
     promise.WaitFrames(35, function()
 
         initializeTableComponents()
+
+
+        -- Scan and initialize any existing flying tokens
+        local all_objs = getAllObjects()
+        for _, obj in ipairs(all_objs) do
+            if obj.hasTag(OBJECT_TAGS.flying) then
+                if obj.getVar("flyOffset") == nil then
+                    flying.create(obj)
+                end
+            end
+        end
+
+        -- DEBUG AREA
+        -- This stuff never gets called unless i'm in my dev environment, so it's safe to leave it here for testing purposes
         local table = Tables.getTable()
 
         print("Table loading complete")
@@ -41,15 +55,14 @@ function onLoad(saved_data)
         local newNote = utils.getObjectByTag(OBJECT_TAGS.clever_notecard)
         utils.swapObjectInBagByTag(COMPONENTS.npc_commander, OBJECT_TAGS.clever_notecard, newNote)
 
-        -- Scan and initialize any existing flying tokens
-        local all_objs = getAllObjects()
-        for _, obj in ipairs(all_objs) do
-            if obj.hasTag(OBJECT_TAGS.flying) then
-                if obj.getVar("flyOffset") == nil then
-                    flying.create(obj)
-                end
-            end
-        end
+        local fogController = getObjectFromGUID('ad04fe')
+        local fogBag = getObjectFromGUID('5b06db')
+        fogBag.reset()
+        fogController.clone({
+            position = fogBag.getPosition() + Vector(0, 2, 0),
+            rotation = fogBag.getRotation(),
+            sound = false
+        })
     end)
 
     if saved_data then SAVED_DATA = JSON.decode(saved_data) end
