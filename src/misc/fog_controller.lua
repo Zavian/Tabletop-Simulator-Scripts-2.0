@@ -92,10 +92,6 @@ function updateXmlUI()
         self.UI.setAttribute("MainPanel", "active", "true")
     end
 
-    -- Counter-rotate UI panel to keep text right side up regardless of tile rotation
-    local objRot = self.getRotation()
-    self.UI.setAttribute("MainPanel", "rotation", "0 0 " .. string.format("%.1f", -objRot.y))
-
     -- Show Area Name label below minimize button if name is set
     local showLabel = (areaName ~= "")
     self.UI.setAttribute("txt_area_name", "active", showLabel and "true" or "false")
@@ -741,8 +737,9 @@ function onRotate(spin, flip, player_color, old_spin, old_flip)
         hiddenVectorLines = {}
         changeOnOffState(previousFlipToggleState)
     end
-    self.setPosition({self.getPosition().x, self.getPosition().y, self.getPosition().z})
-    self.setRotation({0, 0, flip})
+
+    -- Preserve spin (Y-rotation) instead of forcing it to 0
+    self.setRotation({0, spin, flip})
     self.setVelocity({x = 0, y = 0, z = 0})
     updateXmlUI()
     return true
