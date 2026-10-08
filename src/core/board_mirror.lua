@@ -17,9 +17,10 @@
 -- The link itself lives on the pins, in their memos: the master holds a link id
 -- and each slave the id of its master. So links survive bags, copy/paste and the
 -- map bundler (bundle-map.lua / map-positioner.lua): a pin that leaves the table
--- only drops out until it comes back and its slaves keep their pins. The pin's
--- board GUID is saved with the link, so a pin coming back relinks to its board
--- at once; only dropping a pin by hand looks for the board under it. Pin descriptions are
+-- only drops out until it comes back and its slaves keep their pins. Pins are
+-- set up on game load, when dropped, and with the master's "Mirror: initialize",
+-- which sets up the master and all its slaves and finds their boards: use it
+-- after unbundling. Deleting a master deletes its slaves. Pin descriptions are
 -- left alone, since that is where the bundler keeps a piece's home transform.
 -- Every master has a color worked out from its GUID and each of its slaves gets
 -- its own: pins are tinted with theirs and named after the other end,
@@ -851,10 +852,45 @@ local function removeSlave(slaveGuid)
     refreshLink(link.master_id)
 end
 
+-- "Mirror: initialize": sets up a master and every slave pin on the table whose
+-- memo names it, finds the board under each, and resyncs the shadows.
+local function initLink(masterPin, player_color)
+    registerPin(masterPin)
+    local guid = masterPin.getGUID()
+    local entry = state.masters[guid]
+    if not entry then return end
+    placePin(masterPin)
+
+    local count = 0
+    for _, pin in ipairs(getObjectsWithTag(OBJECT_TAGS.board_mirror_slave)) do
+        local memo = readMemo(pin)
+        if memo and memo.master == entry.id then
+            registerPin(pin)
+            placePin(pin)
+            count = count + 1
+        end
+    end
+    refreshLink(entry.id)
+    BoardMirror.syncAll()
+
+    if player_color then
+        local board = entry.board and getObjectFromGUID(entry.board)
+        local where = board and boardLabel(board) or "no board"
+        utils.success("Mirror initialized: master on " .. where .. ", " .. count .. " slave(s).", player_color)
+    end
+end
+
+function BoardMirror.initialize(guid, player_color)
+    if state == nil then return end
+    local pin = getObjectFromGUID(guid)
+    if pin then initLink(pin, player_color) end
+end
+
 addPinMenu = function(pin)
     pin.clearContextMenu()
     local guid = pin.getGUID()
     if state.masters[guid] then
+        pin.addContextMenuItem("Mirror: initialize", function(player_color) initLink(pin, player_color) end)
         pin.addContextMenuItem("Spawn slave", function() spawnSlave(pin) end)
         pin.addContextMenuItem("Remove all slaves", function()
             local entry = state.masters[guid]
@@ -963,34 +999,6 @@ function BoardMirror.init()
     end
 end
 
--- Resyncs the tokens after a pin came back, but only if it has a board to
--- link (a fresh master out of the infinite bag has none until dropped).
-local function syncIfLinked(guid)
-    local entry = state.masters[guid] or state.slaves[guid]
-    if entry and entry.board then BoardMirror.syncAll() end
-end
-
--- Called by an object running the mirror pin script, from its onLoad. Before
--- init() has run this is a no-op: init() finds the pin by its tag instead.
-function BoardMirror.registerMaster(guid)
-    if state == nil then return end
-    local pin = getObjectFromGUID(guid)
-    if pin then
-        registerPin(pin)
-        syncIfLinked(guid)
-    end
-end
-
--- Pins coming out of a bag, a bundle or a paste. Masters also register from
--- their own script; registering twice is harmless. They relink to the board
--- saved on them straight away; a board that comes back after them is picked up
--- by the heartbeat.
-function BoardMirror.onSpawn(obj)
-    if state == nil or not isPin(obj) then return end
-    registerPin(obj)
-    syncIfLinked(obj.getGUID())
-end
-
 function BoardMirror.onPickUp(obj)
     if state == nil then return end
     if isTracked(obj) then follow(obj) end
@@ -1001,9 +1009,10 @@ function BoardMirror.onDrop(obj, player_color)
     if isTracked(obj) then
         follow(obj)
     elseif isPin(obj) then
-        -- Re-detect the board once the pin has landed.
+        -- (Re)register it from its memo and find the board it landed on.
         Wait.condition(function()
             if obj.isDestroyed() then return end
+            registerPin(obj)
             placePin(obj, player_color)
             BoardMirror.syncAll()
         end, function() return obj.isDestroyed() or settled(obj) end, 5)
@@ -1164,9 +1173,9 @@ function BoardMirror.onDestroy(obj)
     local guid = obj.getGUID()
     -- A pin leaving the table first drops out of the links. If it went into a
     -- bag or bundle, or is only reloading its script, that is all: its slaves
-    -- keep their pins and link up again when it comes back, since the link
-    -- lives on the pins' memos. A master that was really deleted takes its
-    -- slave pins with it; a deleted slave only removes itself.
+    -- keep their pins and link up again when it is initialized again. A master
+    -- that was really deleted takes its slave pins with it; a deleted slave
+    -- only removes itself.
     if state.masters[guid] then
         local id = state.masters[guid].id
         state.masters[guid] = nil
@@ -1223,7 +1232,6 @@ function BoardMirror.attach()
     hook("onObjectPickUp", function(player_color, obj) BoardMirror.onPickUp(obj) end)
     hook("onObjectDrop", function(player_color, obj) BoardMirror.onDrop(obj, player_color) end)
     hook("onObjectDestroy", function(obj) BoardMirror.onDestroy(obj) end)
-    hook("onObjectSpawn", function(obj) BoardMirror.onSpawn(obj) end)
     hook("onObjectEnterContainer", function(container, obj) BoardMirror.onEnterContainer(obj) end)
     hook("onObjectRotate", function(obj) BoardMirror.onRotate(obj) end)
     hook("onPlayerPing", function(player, position, object) BoardMirror.onPing(player, position, object) end)
@@ -1233,9 +1241,9 @@ function BoardMirror.attach()
         if params and params.guid then BoardMirror.onVisibilityChanged(params.guid) end
     end)
 
-    -- Called by mirror pins (src/modules/mirror_pin.lua) from their onLoad.
-    hook("boardMirror_registerMaster", function(params)
-        if params and params.guid then BoardMirror.registerMaster(params.guid) end
+    -- Called by a mirror pin's own "Mirror: initialize" (src/modules/mirror_pin.lua).
+    hook("boardMirror_init", function(params)
+        if params and params.guid then BoardMirror.initialize(params.guid, params.player_color) end
     end)
 end
 
