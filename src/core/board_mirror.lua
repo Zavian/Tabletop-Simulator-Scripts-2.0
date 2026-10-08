@@ -242,9 +242,16 @@ end
 -- The player colors a token is invisible to. TTS's own list when this build
 -- exposes it; otherwise the monster UI's is_visible(), the same source the
 -- flying module uses: hidden means hidden from everyone but Black.
+-- Whether this TTS build has getInvisibleTo(): tried once, then remembered,
+-- since a failing pcall throws, and that is too costly to repeat every tick.
+local has_get_invisible = nil
+
 local function tokenHiddenFrom(token)
-    local ok, list = pcall(function() return token.getInvisibleTo() end)
-    if ok and type(list) == "table" then return list end
+    if has_get_invisible ~= false then
+        local ok, list = pcall(function() return token.getInvisibleTo() end)
+        has_get_invisible = ok and type(list) == "table"
+        if has_get_invisible then return list end
+    end
     if token.getVar("is_visible") then
         local called, visible = pcall(function() return token.call("is_visible") end)
         if called and visible == false then return utils.hideFromPlayersArray() end
