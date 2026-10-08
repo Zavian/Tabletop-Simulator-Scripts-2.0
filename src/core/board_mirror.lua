@@ -9,7 +9,9 @@
 -- the master pin and "Spawn slave" (a script-free copy of the master), drop the
 -- slave on another board: tokens on the master board now get a shadow on that
 -- board. A master can have any number of slaves, and a board can carry any
--- number of pins. The board
+-- number of pins. Every master has a color worked out from its GUID, and each
+-- of its slaves gets its own: pins are tinted with theirs and named after the
+-- other end, "Master (red, teal)" and "Slave (navy)". The board
 -- a pin belongs to is whatever it was dropped on (a ray cast straight down), so
 -- moving a pin to another board re-links it.
 --
@@ -39,19 +41,25 @@ function boardMirror_noop() end
 local TICK = 0.05
 local SHADOW_THICKNESS = 0.05
 local LABEL_HEIGHT = 0.15
-local HIGHLIGHT_TIME = 0.25
+
+-- Pin colors, by CONFIG.palette key.
+local PIN_COLORS = {
+    "navy", "blue", "aqua", "teal", "purple", "fuchsia", "maroon",
+    "red", "orange", "yellow", "olive", "green", "lime",
+}
 
 local PLAYER_COLOR = CONFIG.palette.blue.rgb
 local FLIPPED_COLOR = CONFIG.palette.fuchsia.rgb
 
 -- Saved state:
 --   masters[pinGuid] = { board = boardGuid }
---   slaves[pinGuid]  = { master = pinGuid, board = boardGuid }
+--   slaves[pinGuid]  = { master = pinGuid, board = boardGuid, color = PIN_COLORS key }
 --   hidden[boardGuid] = true when that board's pins are hidden
 local state = nil
 
 -- Runtime only:
---   ghosts[tokenGuid][slavePinGuid] = { obj = Object|nil, name = string, color = hex string }
+--   ghosts[tokenGuid][slavePinGuid] = { obj = Object|nil, name = string, color = hex string,
+--                                       highlight = player color it is highlighted in }
 --   timers[tokenGuid] = Wait id of the follow loop
 --   rest_offset[tokenGuid] = how far the token last rested above its master board
 local ghosts = {}
@@ -255,10 +263,14 @@ local function placeGhost(g, token, masterBoard, slaveBoard)
     obj.setRotation(Vector(0, yaw, 0))
     obj.setPosition(world)
 
-    -- Highlighted in the holder's color while the token is carried. Each tick
-    -- renews it; it fades out on its own once the token is let go.
-    if token.held_by_color then
-        obj.highlightOn(Color.fromString(token.held_by_color), HIGHLIGHT_TIME)
+    -- Highlighted in the holder's color for as long as the token is carried.
+    local holder = token.held_by_color
+    if holder and g.highlight ~= holder then
+        g.highlight = holder
+        obj.highlightOn(Color.fromString(holder))
+    elseif holder == nil and g.highlight then
+        g.highlight = nil
+        obj.highlightOff()
     end
 
     local color = tokenColor(token)
@@ -390,10 +402,59 @@ end
 local addPinMenu
 local addBoardMenu
 
--- Masters keep their own look; only slaves are renamed.
-local function stylePin(pin)
-    if state.slaves[pin.getGUID()] then
-        pin.setName("Mirror slave")
+local function masterColor(masterGuid)
+    local hash = 0
+    for i = 1, #masterGuid do
+        hash = (hash * 31 + string.byte(masterGuid, i)) % 1000003
+    end
+    return PIN_COLORS[(hash % #PIN_COLORS) + 1]
+end
+
+-- The first color not taken by the master or by its other slaves.
+local function freeSlaveColor(masterGuid)
+    local used = { [masterColor(masterGuid)] = true }
+    for _, link in pairs(state.slaves) do
+        if link.master == masterGuid and link.color then used[link.color] = true end
+    end
+    for _, key in ipairs(PIN_COLORS) do
+        if not used[key] then return key end
+    end
+    return PIN_COLORS[1]
+end
+
+local function colored(key, text)
+    return "[" .. string.sub(CONFIG.palette[key].hex, 2) .. "]" .. text .. "[-]"
+end
+
+local function tintPin(pin, key)
+    local c = CONFIG.palette[key].rgb
+    pin.setColorTint(Color(c.r, c.g, c.b))
+end
+
+-- Names and tints a master and all its slaves.
+local function refreshPins(masterGuid)
+    local own = masterColor(masterGuid)
+    local slaveGuids = {}
+    for guid, link in pairs(state.slaves) do
+        if link.master == masterGuid then table.insert(slaveGuids, guid) end
+    end
+    table.sort(slaveGuids)
+
+    local names = {}
+    for _, guid in ipairs(slaveGuids) do
+        local link = state.slaves[guid]
+        table.insert(names, colored(link.color, link.color))
+        local pin = getObjectFromGUID(guid)
+        if pin then
+            pin.setName(colored(link.color, "Slave") .. " (" .. colored(own, own) .. ")")
+            tintPin(pin, link.color)
+        end
+    end
+
+    local master = getObjectFromGUID(masterGuid)
+    if master then
+        master.setName(colored(own, "Master") .. " (" .. table.concat(names, ", ") .. ")")
+        tintPin(master, own)
     end
 end
 
@@ -438,8 +499,12 @@ local function spawnSlave(masterPin)
         data = data,
         position = masterPin.getPosition() + Vector(1.5, 1, 0),
         callback_function = function(pin)
-            state.slaves[pin.getGUID()] = { master = masterGuid, board = nil }
-            stylePin(pin)
+            state.slaves[pin.getGUID()] = {
+                master = masterGuid,
+                board = nil,
+                color = freeSlaveColor(masterGuid),
+            }
+            refreshPins(masterGuid)
             addPinMenu(pin)
             save()
         end,
@@ -447,11 +512,13 @@ local function spawnSlave(masterPin)
 end
 
 local function removeSlave(slaveGuid)
-    if not state.slaves[slaveGuid] then return end
+    local link = state.slaves[slaveGuid]
+    if not link then return end
     state.slaves[slaveGuid] = nil
     destroyGhostsOfSlave(slaveGuid)
     local pin = getObjectFromGUID(slaveGuid)
     if pin then pin.destruct() end
+    refreshPins(link.master)
     save()
 end
 
@@ -536,12 +603,14 @@ function BoardMirror.init()
     for guid, link in pairs(state.slaves) do
         if getObjectFromGUID(guid) == nil or state.masters[link.master] == nil then
             state.slaves[guid] = nil
+        elseif type(link.color) ~= "string" or CONFIG.palette[link.color] == nil then
+            link.color = nil
+            link.color = freeSlaveColor(link.master)
         end
     end
 
     local function restore(guid, entry)
         local pin = getObjectFromGUID(guid)
-        stylePin(pin)
         addPinMenu(pin)
         if entry.board == nil then placePin(pin) end
         if entry.board then
@@ -552,6 +621,7 @@ function BoardMirror.init()
     end
     for guid, entry in pairs(state.masters) do restore(guid, entry) end
     for guid, entry in pairs(state.slaves) do restore(guid, entry) end
+    for guid in pairs(state.masters) do refreshPins(guid) end
     save()
 
     -- Let the deleted ghosts finish going before spawning new ones.
@@ -568,6 +638,7 @@ function BoardMirror.registerMaster(guid)
         state.masters[guid] = { board = nil }
     end
     addPinMenu(pin)
+    refreshPins(guid)
     Wait.condition(function()
         if pin.isDestroyed() then return end
         placePin(pin)
@@ -619,10 +690,39 @@ local function echoPing(player_color, targets)
     Wait.frames(function() echoing = false end, 10)
 end
 
+-- The pin a ping landed on, if any.
+local function pingedPin(position, object)
+    if object and (state.masters[object.getGUID()] or state.slaves[object.getGUID()]) then
+        return object.getGUID()
+    end
+    for guid in pairs(state.masters) do
+        if pingHits(position, getObjectFromGUID(guid)) then return guid end
+    end
+    for guid in pairs(state.slaves) do
+        if pingHits(position, getObjectFromGUID(guid)) then return guid end
+    end
+    return nil
+end
+
 -- Pinging a shadow pings its token; pinging a token pings all its shadows.
+-- Pinging a slave pin pings its master; pinging a master pings all its slaves.
 function BoardMirror.onPing(player, position, object)
     if state == nil or echoing then return end
     position = Vector(position)
+
+    local pinGuid = pingedPin(position, object)
+    if pinGuid then
+        local targets = {}
+        if state.slaves[pinGuid] then
+            table.insert(targets, getObjectFromGUID(state.slaves[pinGuid].master))
+        else
+            for guid, link in pairs(state.slaves) do
+                if link.master == pinGuid then table.insert(targets, getObjectFromGUID(guid)) end
+            end
+        end
+        if #targets > 0 then echoPing(player.color, targets) end
+        return
+    end
 
     for tokenGuid, byToken in pairs(ghosts) do
         for _, g in pairs(byToken) do
