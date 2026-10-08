@@ -3,4 +3,5 @@
 .vscode/settings.json
 GEMINI.md
 dist/.tts/
+dist/*.bundle.lua
 /.antigravitycli
