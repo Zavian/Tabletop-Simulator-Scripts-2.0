@@ -182,6 +182,10 @@ function onObjectDestroy(obj)
     board_mirror.onDestroy(obj)
 end
 
+function onObjectRotate(obj, spin, flip, player_color, old_spin, old_flip)
+    board_mirror.onRotate(obj)
+end
+
 function boardMirror_registerMaster(params)
     if not params or not params.guid then return end
     board_mirror.registerMaster(params.guid)
@@ -293,6 +297,7 @@ local SHADOW_THICKNESS = 0.05
 local LABEL_HEIGHT = 0.15
 
 local PLAYER_COLOR = CONFIG.palette.blue.rgb
+local FLIPPED_COLOR = CONFIG.palette.fuchsia.rgb
 
 -- Saved state:
 --   masters[pinGuid] = { board = boardGuid }
@@ -415,11 +420,17 @@ local function disableColliders(obj)
     end)
 end
 
+-- A flipped token's shadow is its color mixed halfway with pink, so it stands
+-- out from the ones still face up.
 local function tokenColor(token)
-    if token.hasTag(OBJECT_TAGS.player) then
-        return Color(PLAYER_COLOR.r, PLAYER_COLOR.g, PLAYER_COLOR.b)
+    local c = token.hasTag(OBJECT_TAGS.player) and PLAYER_COLOR or token.getColorTint()
+    if token.is_face_down then
+        return Color(
+            (c.r + FLIPPED_COLOR.r) / 2,
+            (c.g + FLIPPED_COLOR.g) / 2,
+            (c.b + FLIPPED_COLOR.b) / 2
+        )
     end
-    local c = token.getColorTint()
     return Color(c.r, c.g, c.b)
 end
 
@@ -829,6 +840,12 @@ function BoardMirror.onDrop(obj)
             BoardMirror.syncAll()
         end, function() return obj.isDestroyed() or obj.resting end, 5)
     end
+end
+
+-- Flipping or spinning a token does not pick it up, so follow it from here.
+function BoardMirror.onRotate(obj)
+    if state == nil then return end
+    if isTracked(obj) then follow(obj) end
 end
 
 function BoardMirror.onDestroy(obj)
