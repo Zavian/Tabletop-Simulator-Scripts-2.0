@@ -110,6 +110,7 @@ local last_seen = {}
 local ghost_hidden = {}
 local board_menus = {}
 local echoing = false
+local stashed = {}
 
 ------------------------------------------------------------------------------
 -- Helpers
@@ -1078,6 +1079,12 @@ function BoardMirror.onVisibilityChanged(guid)
     if token and isTracked(token) then BoardMirror.sync(token) end
 end
 
+-- Pins going into a bag or bundle: remembered so onDestroy knows they were
+-- put away, not deleted.
+function BoardMirror.onEnterContainer(obj)
+    if state ~= nil and isPin(obj) then stashed[obj.getGUID()] = true end
+end
+
 -- Flipping or spinning a token does not pick it up, so follow it from here.
 function BoardMirror.onRotate(obj)
     if state == nil then return end
@@ -1087,9 +1094,11 @@ end
 function BoardMirror.onDestroy(obj)
     if state == nil or isGhost(obj) then return end
     local guid = obj.getGUID()
-    -- A pin leaving the table (bundled, bagged, deleted) only drops out of the
-    -- links: its slaves keep their pins and pick the link up again when it
-    -- comes back, since the link lives on the pins' memos.
+    -- A pin leaving the table first drops out of the links. If it went into a
+    -- bag or bundle, or is only reloading its script, that is all: its slaves
+    -- keep their pins and link up again when it comes back, since the link
+    -- lives on the pins' memos. A master that was really deleted takes its
+    -- slave pins with it; a deleted slave only removes itself.
     if state.masters[guid] then
         local id = state.masters[guid].id
         state.masters[guid] = nil
@@ -1098,6 +1107,16 @@ function BoardMirror.onDestroy(obj)
             state.slaves[slaveGuid].master = nil
             destroyGhostsOfSlave(slaveGuid)
         end
+        -- Give onObjectEnterContainer, or the reloaded pin, time to show up.
+        Wait.time(function()
+            local wasStashed = stashed[guid]
+            stashed[guid] = nil
+            if wasStashed or getObjectFromGUID(guid) or master_by_id[id] then return end
+            for _, slaveGuid in ipairs(slavesOf(id)) do
+                local pin = getObjectFromGUID(slaveGuid)
+                if pin then pin.destruct() end
+            end
+        end, 0.5)
     elseif state.slaves[guid] then
         local id = state.slaves[guid].master_id
         state.slaves[guid] = nil
@@ -1137,6 +1156,7 @@ function BoardMirror.attach()
     hook("onObjectDrop", function(player_color, obj) BoardMirror.onDrop(obj, player_color) end)
     hook("onObjectDestroy", function(obj) BoardMirror.onDestroy(obj) end)
     hook("onObjectSpawn", function(obj) BoardMirror.onSpawn(obj) end)
+    hook("onObjectEnterContainer", function(container, obj) BoardMirror.onEnterContainer(obj) end)
     hook("onObjectRotate", function(obj) BoardMirror.onRotate(obj) end)
     hook("onPlayerPing", function(player, position, object) BoardMirror.onPing(player, position, object) end)
 
