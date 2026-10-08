@@ -45,7 +45,8 @@ $entryFiles = @(
     "src/modules/npc_commander.lua"
     "src/modules/player_injector.lua"
     "src/modules/clever_notecard.lua",
-    "src/modules/monster_ui.lua"
+    "src/modules/monster_ui.lua",
+    "src/modules/mirror_pin.lua"
 )
 
 Write-ColorOutput green "Bundling files..."

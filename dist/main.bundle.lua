@@ -256,7 +256,7 @@ __bundle_register("src.core.board_mirror", function(require, _LOADED, __bundle_r
 -- ghosts that follow the token while it is carried. Neither the boards nor the
 -- tokens get any script: everything lives here, in Global.
 --
--- Pins. Give any object the script in src/misc/mirror_pin.lua and drop it on a
+-- Pins. Give any object the script in src/modules/mirror_pin.lua and drop it on a
 -- board: that object is now a master pin and the board a master. Right-click
 -- the master pin and "Spawn slave" or "Spawn shadow slave" (a script-free copy
 -- of the master), drop the slave on another board: tokens on the master board
