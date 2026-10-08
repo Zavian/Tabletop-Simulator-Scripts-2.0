@@ -12,6 +12,12 @@
 -- copy ever falls under the 0.1 minimum (2.05 is three copies of ~0.68, not two
 -- of 1 plus a 0.05 sliver).
 --
+-- SITS ON. Each row can name another layer it sits on. Its base is then that
+-- layer's top (measured in game, like everything else) plus its own Y, so Y
+-- becomes an offset above the other layer, normally 0. Chains are fine (stair 5
+-- on stair 4 on stair 3...); a choice that would make a loop is refused. The
+-- JSON carries it as "on": "<name of the other layer>".
+--
 -- A height can also be written "thickness*count" (or "thicknessxcount"): 0.1*3
 -- is three copies 0.1 thick, total 0.3, where plain 0.3 is one copy 0.3 thick.
 -- The layer keeps `copies` for that, and the JSON carries it the same way.
@@ -59,7 +65,7 @@ local MIN_THICKNESS = 0.1
 local MAX_THICKNESS = 1
 local MAX_COPIES = 20 -- a typo of 200 should not spawn 200 tokens
 local LOAD_TIMEOUT = 60 -- seconds to wait for every image to load
-local PANEL_WIDTH = 560
+local PANEL_WIDTH = 690
 local ROW_HEIGHT = 30
 
 local state = {
@@ -149,6 +155,50 @@ local function pieceTag(layer)
     return self.getGUID() .. "|" .. layer.id
 end
 
+local function layerIndexById(id)
+    for i, layer in ipairs(state.layers) do
+        if layer.id == id then return i end
+    end
+    return nil
+end
+
+-- True when making layer `child` sit on layer `parent` would close a loop: the
+-- parent, or anything it sits on, already sits on the child.
+local function wouldLoop(childId, parentId)
+    local seen = {}
+    local id = parentId
+    while id ~= nil and not seen[id] do
+        if id == childId then return true end
+        seen[id] = true
+        local i = layerIndexById(id)
+        id = i and state.layers[i].on or nil
+    end
+    return false
+end
+
+-- A layer whose "sits on" target was removed goes back to the ground.
+local function dropDanglingParents()
+    for _, layer in ipairs(state.layers) do
+        if layer.on ~= nil and layerIndexById(layer.on) == nil then layer.on = nil end
+    end
+end
+
+local GROUND = "ground"
+
+-- The "sits on" dropdown: the ground, then every other layer as "N. name". The
+-- number makes the option text unique, and is how the handler finds the layer.
+local function sitsOnDropdown(i, layer)
+    local options = { string.format('<Option%s>%s</Option>', layer.on == nil and ' selected="true"' or "", GROUND) }
+    for j, other in ipairs(state.layers) do
+        if j ~= i then
+            options[#options + 1] = string.format('<Option%s>%s</Option>',
+                other.id == layer.on and ' selected="true"' or "", xmlEscape(j .. ". " .. other.name))
+        end
+    end
+    return string.format('<Dropdown id="on_%d" preferredWidth="130" fontSize="12" onValueChanged="onLayerSitsOn" tooltip="The layer this one sits on top of. Y is then an offset above it.">%s</Dropdown>',
+        i, table.concat(options))
+end
+
 -- True for anything this controller spawned. A bare GUID is what builds made
 -- before pieces carried their layer id.
 local function isOurPiece(obj)
@@ -233,11 +283,13 @@ end
 
 function rebuildUI()
     ensureLayerIds()
+    dropDanglingParents()
     local rows = {}
     for i, layer in ipairs(state.layers) do
         local count = splitLayer(layer)
         rows[#rows + 1] = string.format([[
 <HorizontalLayout preferredHeight="%d" spacing="6" childForceExpandWidth="false">
+ %s
     %s
     %s
     %s
@@ -250,6 +302,7 @@ function rebuildUI()
                 i, xmlEscape(layer.url), xmlEscape(i .. ". " .. layer.name)),
             input("h_" .. i, heightText(layer), 80, "onLayerHeight", "None"),
             input("y_" .. i, fmt(layer.y), 80, "onLayerY"),
+            sitsOnDropdown(i, layer),
             label(count > 1 and ("x" .. count) or "", 50, 'class="dim"'),
             i)
     end
@@ -286,7 +339,7 @@ function rebuildUI()
         %s %s %s %s %s %s
     </HorizontalLayout>
     <HorizontalLayout preferredHeight="20" spacing="6" childForceExpandWidth="false">
-        %s %s %s %s
+        %s %s %s %s %s
     </HorizontalLayout>
     %s
     <Text id="txt_status" class="dim" preferredHeight="36">%s</Text>
@@ -302,6 +355,7 @@ function rebuildUI()
         label("Layer", 250, 'class="dim" alignment="MiddleLeft"'),
         label("Height", 80, 'class="dim"'),
         label("Y", 80, 'class="dim"'),
+        label("Sits on", 130, 'class="dim"'),
         label("", 50),
         table.concat(rows, "\n"),
         xmlEscape(status))
@@ -381,9 +435,47 @@ function onImportJson(player)
             height = copies and height or clampHeight(height),
             copies = copies,
             y = tonumber(entry.y) or 0,
+            sitsOn = entry.on, -- resolved below, once every layer exists
         }
     end
+    -- "on" names another layer in this JSON (or gives its 1-based position).
+    -- Resolved to positions first so a bad name or a loop refuses the whole
+    -- import, like any other invalid entry.
+    local parentOf = {}
+    for i, layer in ipairs(layers) do
+        local on = layer.sitsOn
+        layer.sitsOn = nil
+        local target = nil
+        if type(on) == "number" then
+            target = layers[on] and on or nil
+        elseif type(on) == "string" then
+            -- A layer actually called "ground" wins over the keyword.
+            for j, other in ipairs(layers) do
+                if other.name == on then target = j break end
+            end
+        end
+        if on ~= nil and on ~= "" and (target or on ~= GROUND) then
+            if not target or target == i then
+                tell(player, "Layer " .. i .. " sits \"on\" " .. tostring(on) .. ", which is not another layer in the JSON.", { 1, 0.6, 0.2 })
+                return
+            end
+            parentOf[i] = target
+        end
+    end
+    for i in pairs(parentOf) do
+        local seen, j = {}, i
+        while parentOf[j] do
+            if seen[j] then
+                tell(player, "The \"on\" entries in the JSON form a loop around layer " .. i .. ".", { 1, 0.6, 0.2 })
+                return
+            end
+            seen[j] = true
+            j = parentOf[j]
+        end
+    end
     state.layers = layers
+    ensureLayerIds()
+    for i, j in pairs(parentOf) do layers[i].on = layers[j].id end
     state.map = type(data.map) == "string" and data.map or nil
     state.mapWidth = tonumber(data.width)
     state.mapHeight = tonumber(data.height)
@@ -412,7 +504,8 @@ local function stackJson()
         -- A split layer goes out as "0.1*3", the way it was typed, rather than as
         -- 0.30000000000000004 plus a count; ADD reads either.
         local height = layer.copies and heightText(layer) or tonumber(fmt(layer.height))
-        layers[i] = { name = layer.name, url = layer.url, height = height, y = layer.y }
+        local parent = layer.on and state.layers[layerIndexById(layer.on) or 0]
+        layers[i] = { name = layer.name, url = layer.url, height = height, y = layer.y, on = parent and parent.name or nil }
     end
     return JSON.encode_pretty({
         format = "scriptorium-diorama-stack",
@@ -536,6 +629,24 @@ local function endField(getter)
 end
 
 local function layerAt(id) return state.layers[indexFromId(id)] end
+
+function onLayerSitsOn(player, value, id)
+    if not isAuthorized(player) then return end
+    local layer = layerAt(id)
+    if not layer then return end
+    local parentIndex = tonumber(tostring(value or ""):match("^(%d+)%."))
+    local parent = parentIndex and state.layers[parentIndex]
+    if value == GROUND or not parent then
+        layer.on = nil
+        status = layer.name .. " sits on the ground."
+    elseif wouldLoop(layer.id, parent.id) then
+        tell(player, parent.name .. " already sits on " .. layer.name .. ", so " .. layer.name .. " cannot sit on it.", { 1, 0.6, 0.2 })
+    else
+        layer.on = parent.id
+        status = layer.name .. " sits on " .. parent.name .. ". Y is now an offset above it."
+    end
+    rebuildUI()
+end
 
 -- Not a numberField: "0.1*3" is not a number. Half-typed text ("0.1*") simply
 -- does not parse and keeps the last valid value, like the number fields do.
@@ -679,26 +790,54 @@ end
 function place(player, pieces, thisBuild)
     if buildId ~= thisBuild then return end -- cleared or rebuilt meanwhile
     local o = state.origin
-    local nextBottom = {} -- per layer: where its next copy's bottom face goes
     local missing = 0
 
+    -- Group the surviving pieces by layer, in spawn (bottom-to-top) order.
+    local byLayer = {}
     for _, p in ipairs(pieces) do
-        local obj = p.obj
-        if obj == nil then
+        if p.obj == nil then
             missing = missing + 1
         else
-            local bounds = obj.getBounds()
-            local h = bounds.size.y
-            local pivotAboveBottom = obj.getPosition().y - (bounds.center.y - h / 2)
-            if nextBottom[p.layer] == nil then
-                -- Y is in thickness units; this piece says what one unit is.
-                local worldPerUnit = h / p.thickness
-                nextBottom[p.layer] = o.y + state.layers[p.layer].y * worldPerUnit
-            end
-            obj.setPosition({ o.x, nextBottom[p.layer] + pivotAboveBottom, o.z })
-            nextBottom[p.layer] = nextBottom[p.layer] + h
+            byLayer[p.layer] = byLayer[p.layer] or {}
+            table.insert(byLayer[p.layer], p)
         end
     end
+
+    -- A layer's base is the ground, or the measured top of the layer it sits on,
+    -- plus its Y. Placed on demand so a parent is always placed before its child;
+    -- loops cannot exist (refused when chosen), but `placing` guards anyway.
+    local topOf, placing = {}, {}
+    local function placeLayer(i)
+        if topOf[i] ~= nil then return topOf[i] end
+        if placing[i] then return o.y end
+        placing[i] = true
+        local layer = state.layers[i]
+        local group = byLayer[i] or {}
+
+        -- Y is in thickness units; the layer's first piece says what one unit is.
+        local worldPerUnit = 1
+        if group[1] then
+            worldPerUnit = group[1].obj.getBounds().size.y / group[1].thickness
+        end
+
+        local base = o.y
+        local parentIndex = layer.on and layerIndexById(layer.on)
+        if parentIndex then base = placeLayer(parentIndex) end
+        local nextBottom = base + layer.y * worldPerUnit
+
+        for _, p in ipairs(group) do
+            local bounds = p.obj.getBounds()
+            local h = bounds.size.y
+            local pivotAboveBottom = p.obj.getPosition().y - (bounds.center.y - h / 2)
+            p.obj.setPosition({ o.x, nextBottom + pivotAboveBottom, o.z })
+            nextBottom = nextBottom + h
+        end
+
+        topOf[i] = nextBottom
+        placing[i] = nil
+        return nextBottom
+    end
+    for i = 1, #state.layers do placeLayer(i) end
 
     local msg = "Built " .. (#pieces - missing) .. " piece(s) from " .. #state.layers .. " layer(s)."
     if missing > 0 then msg = msg .. " " .. missing .. " were deleted before placing." end
