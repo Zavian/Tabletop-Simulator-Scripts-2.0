@@ -970,6 +970,7 @@ end
 ------------------------------------------------------------------------------
 
 function BoardMirror.init()
+    print("[B9EA4F](Board mirror)[ffffff] Global v" .. BOARD_MIRROR_VERSION .. " loaded")
     local saved = SAVED_DATA.BOARD_MIRROR or {}
     state = { masters = {}, slaves = {}, hidden = saved.hidden or {} }
     migrate(saved)
@@ -1240,6 +1241,9 @@ function BoardMirror.attach()
     hook("updateFlyingVisibility", function(params)
         if params and params.guid then BoardMirror.onVisibilityChanged(params.guid) end
     end)
+
+    -- Asked by mirror pins on load, to warn when Global and the pin differ.
+    _G.boardMirror_version = function() return BOARD_MIRROR_VERSION end
 
     -- Called by a mirror pin's own "Mirror: initialize" (src/modules/mirror_pin.lua).
     hook("boardMirror_init", function(params)

@@ -140,6 +140,11 @@ CONFIG = {
     }
 }
 
+-- Board mirror version, shared by Global (src/core/board_mirror.lua) and the
+-- mirror pin (src/modules/mirror_pin.lua) so a stale script on either side is
+-- easy to spot. Bump it with every board mirror change.
+BOARD_MIRROR_VERSION = 26
+
 OBJECT_TAGS = {
     npc_commander = "npc_commander",
     clever_notecard = "clever_notecard",
