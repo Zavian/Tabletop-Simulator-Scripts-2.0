@@ -17,8 +17,9 @@
 -- The link itself lives on the pins, in their memos: the master holds a link id
 -- and each slave the id of its master. So links survive bags, copy/paste and the
 -- map bundler (bundle-map.lua / map-positioner.lua): a pin that leaves the table
--- only drops out until it comes back, its slaves keep their pins, and once the
--- positioner has put a pin back it finds its board again. Pin descriptions are
+-- only drops out until it comes back and its slaves keep their pins. The pin's
+-- board GUID is saved with the link, so a pin coming back relinks to its board
+-- at once; only dropping a pin by hand looks for the board under it. Pin descriptions are
 -- left alone, since that is where the bundler keeps a piece's home transform.
 -- Every master has a color worked out from its GUID and each of its slaves gets
 -- its own: pins are tinted with theirs and named after the other end,
@@ -64,8 +65,6 @@ local SHADOW_THICKNESS = 0.05
 local LABEL_HEIGHT = 0.15
 local HEARTBEAT = 1
 local BOARD_GLOW = 2
-local PIN_WATCH = 0.2
-local PIN_WATCH_TIME = 15
 
 -- Pin colors: bright hues, so pins and names read well on dark boards.
 local PIN_COLORS = {
@@ -113,7 +112,6 @@ local last_seen = {}
 local ghost_hidden = {}
 local board_menus = {}
 local echoing = false
-local pin_watch = {}
 local stashed = {}
 
 ------------------------------------------------------------------------------
@@ -520,7 +518,9 @@ local function follow(token)
     end, TICK, -1)
 end
 
-local replacePins
+-- Defined with the pins, further down.
+local addPinMenu
+local addBoardMenu
 
 -- Once a second, catches what the pick-up/drop events miss: tokens moved,
 -- spawned, renamed or retinted by scripts, boards that were moved, and shadows
@@ -529,7 +529,9 @@ local replacePins
 local function heartbeat()
     if state == nil or next(state.masters) == nil then return end
 
-    local boardMoved = replacePins()
+    -- A linked board that moved, rescaled, or just appeared (unbundled after
+    -- its pins) resyncs every token.
+    local boardMoved = false
     local boards = {}
     for _, entry in pairs(state.masters) do if entry.board then boards[entry.board] = true end end
     for _, entry in pairs(state.slaves) do if entry.board then boards[entry.board] = true end end
@@ -537,8 +539,13 @@ local function heartbeat()
         local board = getObjectFromGUID(guid)
         if board then
             local sig = boardSignature(board)
-            if last_seen[guid] ~= nil and last_seen[guid] ~= sig then boardMoved = true end
-            last_seen[guid] = sig
+            if last_seen[guid] ~= sig then
+                if last_seen[guid] == nil then addBoardMenu(board) end
+                boardMoved = true
+                last_seen[guid] = sig
+            end
+        else
+            last_seen[guid] = nil
         end
     end
 
@@ -568,13 +575,15 @@ end
 -- Pins and menus
 ------------------------------------------------------------------------------
 
-local addPinMenu
-local addBoardMenu
 
 -- A pin's link lives in its own memo, which TTS keeps through bags, bundles,
 -- copy/paste and saves:
---   master: { mirror = "master", id = linkId }
---   slave:  { mirror = "slave", master = linkId, color = PIN_COLORS name, gm_only = bool }
+--   master: { mirror = "master", id = linkId, board = boardGuid }
+--   slave:  { mirror = "slave", master = linkId, board = boardGuid,
+--             color = PIN_COLORS name, gm_only = bool }
+-- The board is saved too: board GUIDs survive bags and bundles, so a pin that
+-- comes back relinks to its board at once, wherever it lands and whether or
+-- not the board is back yet.
 local function readMemo(pin)
     local memo = pin.memo
     if memo == nil or memo == "" then return nil end
@@ -637,9 +646,18 @@ local function saveSlaveMemo(guid)
         writeMemo(pin, {
             mirror = "slave",
             master = link.master_id,
+            board = link.board,
             color = link.color,
             gm_only = link.gm_only or nil,
         })
+    end
+end
+
+local function saveMasterMemo(guid)
+    local entry = state.masters[guid]
+    local pin = getObjectFromGUID(guid)
+    if entry and pin then
+        writeMemo(pin, { mirror = "master", id = entry.id, board = entry.board })
     end
 end
 
@@ -693,8 +711,10 @@ local function boardLabel(board)
     return name
 end
 
--- Works out which board a pin is on and returns whether that changed. With a
--- player color, tells that player when the board changed, or that it found none.
+-- Works out which board a pin is on (a ray cast straight down), saves it on the
+-- pin and returns whether it changed. Only needed when a pin is dropped by hand
+-- or has no board saved yet. With a player color, tells that player when the
+-- board changed, or that it found none.
 local function placePin(pin, player_color)
     local guid = pin.getGUID()
     local entry = state.masters[guid] or state.slaves[guid]
@@ -714,7 +734,9 @@ local function placePin(pin, player_color)
         addBoardMenu(board)
         if state.hidden[entry.board] then applyHidden(pin, true) end
     end
-    last_seen[guid] = string.format("%.2f %.2f %.2f", pin.getPosition().x, pin.getPosition().y, pin.getPosition().z)
+    if entry.board ~= before then
+        if state.masters[guid] then saveMasterMemo(guid) else saveSlaveMemo(guid) end
+    end
     return entry.board ~= before
 end
 
@@ -742,9 +764,9 @@ local function registerPin(pin)
         if id == nil or (holder and holder ~= guid and getObjectFromGUID(holder)) then
             id = newLinkId(pin)
         end
-        writeMemo(pin, { mirror = "master", id = id })
-        local board = state.masters[guid] and state.masters[guid].board
+        local board = memo.board or (state.masters[guid] and state.masters[guid].board)
         state.masters[guid] = { id = id, board = board }
+        saveMasterMemo(guid)
         master_by_id[id] = guid
         for _, slaveGuid in ipairs(slavesOf(id)) do
             state.slaves[slaveGuid].master = guid
@@ -752,7 +774,7 @@ local function registerPin(pin)
         refreshLink(id)
     elseif pin.hasTag(OBJECT_TAGS.board_mirror_slave) then
         local id = memo.mirror == "slave" and memo.master or nil
-        local board = state.slaves[guid] and state.slaves[guid].board
+        local board = memo.board or (state.slaves[guid] and state.slaves[guid].board)
         local link = {
             master_id = id,
             master = id and master_by_id[id],
@@ -880,57 +902,6 @@ addBoardMenu = function(board)
     board.addContextMenuItem("Mirror: show pins", function() setBoardHidden(guid, false) end)
 end
 
--- Pins that have settled somewhere new since they were last placed: dropped
--- by a script, or put back by the map bundler's positioner, which moves pieces
--- with setPositionSmooth and so never fires a drop. Pins with no board yet are
--- retried too, since the board may arrive after them.
-replacePins = function()
-    local changed = false
-    local function check(guid, entry)
-        local pin = getObjectFromGUID(guid)
-        if pin == nil or not settled(pin) then return end
-        local p = pin.getPosition()
-        local sig = string.format("%.2f %.2f %.2f", p.x, p.y, p.z)
-        if entry.board == nil or last_seen[guid] ~= sig then
-            -- Any settle on a board counts, not only a change of board: an
-            -- unbundled pin is placed once in the positioner's pile and again
-            -- at home, often on the same board both times.
-            placePin(pin)
-            if entry.board then changed = true end
-        end
-    end
-    for guid, entry in pairs(state.masters) do check(guid, entry) end
-    for guid, entry in pairs(state.slaves) do check(guid, entry) end
-    return changed
-end
-
--- Watches a pin that just appeared (unbundled, taken out of a bag, pasted)
--- every PIN_WATCH for PIN_WATCH_TIME, placing it each time it settles
--- somewhere new. The positioner first drops pieces in a pile and only later
--- slides them home, so one placement is not enough; this keeps up with it
--- instead of waiting for the once-a-second heartbeat.
-local function watchPin(pin)
-    local guid = pin.getGUID()
-    if pin_watch[guid] then Wait.stop(pin_watch[guid]) end
-    local elapsed = 0
-    pin_watch[guid] = Wait.time(function()
-        elapsed = elapsed + PIN_WATCH
-        local entry = state.masters[guid] or state.slaves[guid]
-        if pin.isDestroyed() or entry == nil or elapsed >= PIN_WATCH_TIME then
-            Wait.stop(pin_watch[guid])
-            pin_watch[guid] = nil
-            return
-        end
-        if not settled(pin) then return end
-        local p = pin.getPosition()
-        local sig = string.format("%.2f %.2f %.2f", p.x, p.y, p.z)
-        if entry.board == nil or last_seen[guid] ~= sig then
-            placePin(pin)
-            if entry.board then BoardMirror.syncAll() end
-        end
-    end, PIN_WATCH, -1)
-end
-
 -- Brings in the links an older version kept in SAVED_DATA, by writing them
 -- onto the pins' memos.
 local function migrate(old)
@@ -975,8 +946,13 @@ function BoardMirror.init()
     -- Masters first, so slaves find them.
     for _, pin in ipairs(getObjectsWithTag(OBJECT_TAGS.board_mirror_master)) do registerPin(pin) end
     for _, pin in ipairs(getObjectsWithTag(OBJECT_TAGS.board_mirror_slave)) do registerPin(pin) end
-    for guid in pairs(state.masters) do placePin(getObjectFromGUID(guid)) end
-    for guid in pairs(state.slaves) do placePin(getObjectFromGUID(guid)) end
+    -- Pins from older versions have no board saved yet.
+    for guid, entry in pairs(state.masters) do
+        if entry.board == nil then placePin(getObjectFromGUID(guid)) end
+    end
+    for guid, entry in pairs(state.slaves) do
+        if entry.board == nil then placePin(getObjectFromGUID(guid)) end
+    end
     save()
 
     -- Let the deleted ghosts finish going before spawning new ones.
@@ -987,6 +963,13 @@ function BoardMirror.init()
     end
 end
 
+-- Resyncs the tokens after a pin came back, but only if it has a board to
+-- link (a fresh master out of the infinite bag has none until dropped).
+local function syncIfLinked(guid)
+    local entry = state.masters[guid] or state.slaves[guid]
+    if entry and entry.board then BoardMirror.syncAll() end
+end
+
 -- Called by an object running the mirror pin script, from its onLoad. Before
 -- init() has run this is a no-op: init() finds the pin by its tag instead.
 function BoardMirror.registerMaster(guid)
@@ -994,17 +977,18 @@ function BoardMirror.registerMaster(guid)
     local pin = getObjectFromGUID(guid)
     if pin then
         registerPin(pin)
-        watchPin(pin)
+        syncIfLinked(guid)
     end
 end
 
 -- Pins coming out of a bag, a bundle or a paste. Masters also register from
--- their own script; registering twice is harmless. The heartbeat places them
--- once they settle.
+-- their own script; registering twice is harmless. They relink to the board
+-- saved on them straight away; a board that comes back after them is picked up
+-- by the heartbeat.
 function BoardMirror.onSpawn(obj)
     if state == nil or not isPin(obj) then return end
     registerPin(obj)
-    watchPin(obj)
+    syncIfLinked(obj.getGUID())
 end
 
 function BoardMirror.onPickUp(obj)
