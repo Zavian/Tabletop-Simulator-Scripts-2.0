@@ -11,6 +11,13 @@
 -- board. A master can have any number of slaves, and a board can carry any
 -- number of pins. The board a pin belongs to is the first locked object under it
 -- (a ray cast straight down), so moving a pin to another board re-links it.
+--
+-- The link itself lives on the pins, in their memos: the master holds a link id
+-- and each slave the id of its master. So links survive bags, copy/paste and the
+-- map bundler (bundle-map.lua / map-positioner.lua): a pin that leaves the table
+-- only drops out until it comes back, its slaves keep their pins, and once the
+-- positioner has put a pin back it finds its board again. Pin descriptions are
+-- left alone, since that is where the bundler keeps a piece's home transform.
 -- Every master has a color worked out from its GUID and each of its slaves gets
 -- its own: pins are tinted with theirs and named after the other end,
 -- "Master (red, teal)" and "Slave (navy)".
@@ -38,8 +45,9 @@
 -- raised by however far the token was resting above the master board's surface
 -- (stairs, platforms inside a diorama).
 --
--- Links are kept in SAVED_DATA.BOARD_MIRROR, keyed by pin GUID. Shadows are not
--- saved: on load the old ones are deleted and rebuilt.
+-- Only which boards have their pins hidden is kept in SAVED_DATA.BOARD_MIRROR;
+-- links from older saves, which kept them there, are moved onto the pins' memos
+-- on load. Shadows are not saved: on load the old ones are deleted and rebuilt.
 
 local utils = require("src.core.utils")
 require("src.data.config")
@@ -75,12 +83,15 @@ for _, c in ipairs(PIN_COLORS) do PIN_COLOR_BY_NAME[c.name] = c end
 local PLAYER_COLOR = CONFIG.palette.blue.rgb
 local FLIPPED_COLOR = CONFIG.palette.fuchsia.rgb
 
--- Saved state:
---   masters[pinGuid] = { board = boardGuid }
---   slaves[pinGuid]  = { master = pinGuid, board = boardGuid, color = PIN_COLORS name,
+-- State, rebuilt from the pins' memos (see registerPin):
+--   masters[pinGuid] = { id = linkId, board = boardGuid }
+--   slaves[pinGuid]  = { master_id = linkId, master = master pin GUID or nil,
+--                        board = boardGuid, color = PIN_COLORS name,
 --                        gm_only = true when only Black sees its shadows }
---   hidden[boardGuid] = true when that board's pins are hidden
+--   hidden[boardGuid] = true when that board's pins are hidden (the only part
+--                       kept in SAVED_DATA.BOARD_MIRROR)
 local state = nil
+local master_by_id = {}
 
 -- Runtime only:
 --   ghosts[tokenGuid][slavePinGuid] = { obj = Object|nil, name = string, color = hex string,
@@ -115,7 +126,7 @@ local function isTracked(obj)
 end
 
 local function save()
-    SAVED_DATA.BOARD_MIRROR = state
+    SAVED_DATA.BOARD_MIRROR = { hidden = state.hidden }
 end
 
 local function castDown(origin)
@@ -484,6 +495,8 @@ local function follow(token)
     end, TICK, -1)
 end
 
+local replacePins
+
 -- Once a second, catches what the pick-up/drop events miss: tokens moved,
 -- spawned, renamed or retinted by scripts, boards that were moved, and shadows
 -- brought back by undo. Only compares cheap signatures; tokens that changed are
@@ -491,7 +504,7 @@ end
 local function heartbeat()
     if state == nil or next(state.masters) == nil then return end
 
-    local boardMoved = false
+    local boardMoved = replacePins()
     local boards = {}
     for _, entry in pairs(state.masters) do if entry.board then boards[entry.board] = true end end
     for _, entry in pairs(state.slaves) do if entry.board then boards[entry.board] = true end end
@@ -533,24 +546,76 @@ end
 local addPinMenu
 local addBoardMenu
 
-local function masterColor(masterGuid)
+-- A pin's link lives in its own memo, which TTS keeps through bags, bundles,
+-- copy/paste and saves:
+--   master: { mirror = "master", id = linkId }
+--   slave:  { mirror = "slave", master = linkId, color = PIN_COLORS name, gm_only = bool }
+local function readMemo(pin)
+    local memo = pin.memo
+    if memo == nil or memo == "" then return nil end
+    local ok, data = pcall(function() return JSON.decode(memo) end)
+    if ok and type(data) == "table" and data.mirror then return data end
+    return nil
+end
+
+local function writeMemo(pin, data)
+    pin.memo = JSON.encode(data)
+end
+
+-- A link id starts with the GUID the master had when it got the id, which is
+-- unique on the table at that moment; the random tail keeps two ids apart even
+-- if that GUID is reused later in another save.
+local function newLinkId(pin)
+    local id
+    repeat
+        id = pin.getGUID() .. "-"
+        for _ = 1, 4 do
+            id = id .. string.char(math.random(97, 122))
+        end
+    until master_by_id[id] == nil
+    return id
+end
+
+local function colorOfId(id)
     local hash = 0
-    for i = 1, #masterGuid do
-        hash = (hash * 31 + string.byte(masterGuid, i)) % 1000003
+    for i = 1, #id do
+        hash = (hash * 31 + string.byte(id, i)) % 1000003
     end
     return PIN_COLORS[(hash % #PIN_COLORS) + 1].name
 end
 
+local function slavesOf(id)
+    local list = {}
+    for guid, link in pairs(state.slaves) do
+        if link.master_id == id then table.insert(list, guid) end
+    end
+    table.sort(list)
+    return list
+end
+
 -- The first color not taken by the master or by its other slaves.
-local function freeSlaveColor(masterGuid)
-    local used = { [masterColor(masterGuid)] = true }
-    for _, link in pairs(state.slaves) do
-        if link.master == masterGuid and link.color then used[link.color] = true end
+local function freeSlaveColor(id, exceptGuid)
+    local used = { [colorOfId(id)] = true }
+    for guid, link in pairs(state.slaves) do
+        if guid ~= exceptGuid and link.master_id == id and link.color then used[link.color] = true end
     end
     for _, c in ipairs(PIN_COLORS) do
         if not used[c.name] then return c.name end
     end
     return PIN_COLORS[1].name
+end
+
+local function saveSlaveMemo(guid)
+    local link = state.slaves[guid]
+    local pin = getObjectFromGUID(guid)
+    if link and pin then
+        writeMemo(pin, {
+            mirror = "slave",
+            master = link.master_id,
+            color = link.color,
+            gm_only = link.gm_only or nil,
+        })
+    end
 end
 
 local function colored(key, text)
@@ -561,34 +626,26 @@ local function tintPin(pin, key)
     pin.setColorTint(Color.fromHex(PIN_COLOR_BY_NAME[key].hex))
 end
 
--- Names and tints a master and all its slaves.
-local function refreshPins(masterGuid)
-    local own = masterColor(masterGuid)
-    local slaveGuids = {}
-    for guid, link in pairs(state.slaves) do
-        if link.master == masterGuid then table.insert(slaveGuids, guid) end
-    end
-    table.sort(slaveGuids)
-
+-- Names and tints a master and all its slaves. Pin descriptions are left to
+-- the map bundler, which keeps a piece's home transform there.
+local function refreshLink(id)
+    if id == nil then return end
+    local own = colorOfId(id)
     local names = {}
-    for _, guid in ipairs(slaveGuids) do
+    for _, guid in ipairs(slavesOf(id)) do
         local link = state.slaves[guid]
         table.insert(names, colored(link.color, link.color))
         local pin = getObjectFromGUID(guid)
         if pin then
             local suffix = link.gm_only and " - GM only" or ""
             pin.setName(colored(link.color, "Slave") .. " (" .. colored(own, own) .. ")" .. suffix)
-            pin.setDescription("Board mirror slave. Drop it on the board the "
-                .. colored(own, own) .. " master's tokens should show up on.")
             tintPin(pin, link.color)
         end
     end
 
-    local master = getObjectFromGUID(masterGuid)
+    local master = master_by_id[id] and getObjectFromGUID(master_by_id[id])
     if master then
         master.setName(colored(own, "Master") .. " (" .. table.concat(names, ", ") .. ")")
-        master.setDescription("Board mirror master. Drop it on a board, then right-click "
-            .. "> Spawn slave and drop the slave on the board to mirror onto.")
         tintPin(master, own)
     end
 end
@@ -610,13 +667,13 @@ local function boardLabel(board)
     return name
 end
 
--- Works out which board a pin is on. With a player color, tells that player
--- when the pin's board changed, or that it found none.
+-- Works out which board a pin is on and returns whether that changed. With a
+-- player color, tells that player when the board changed, or that it found none.
 local function placePin(pin, player_color)
-    local board = boardUnderPin(pin)
     local guid = pin.getGUID()
     local entry = state.masters[guid] or state.slaves[guid]
-    if not entry then return end
+    if not entry then return false end
+    local board = boardUnderPin(pin)
     local before = entry.board
     entry.board = board and board.getGUID() or nil
     if player_color then
@@ -631,18 +688,81 @@ local function placePin(pin, player_color)
         addBoardMenu(board)
         if state.hidden[entry.board] then applyHidden(pin, true) end
     end
-    save()
+    last_seen[guid] = string.format("%.2f %.2f %.2f", pin.getPosition().x, pin.getPosition().y, pin.getPosition().z)
+    return entry.board ~= before
+end
+
+-- Reads a pin's memo and (re)builds its entry. Safe to call again for a pin
+-- that is already known. A master whose id is already used by another master
+-- on the table (a copy, or the infinite bag's spare) gets a fresh id, so it
+-- starts without slaves instead of sharing them.
+local function registerPin(pin)
+    local guid = pin.getGUID()
+    local memo = readMemo(pin) or {}
+
+    -- Help text older versions wrote: the map bundler only records a piece's
+    -- transform when its description is empty.
+    if string.sub(pin.getDescription() or "", 1, 13) == "Board mirror " then
+        pin.setDescription("")
+    end
+
+    if pin.hasTag(OBJECT_TAGS.board_mirror_master) then
+        local id = memo.mirror == "master" and memo.id or nil
+        local holder = id and master_by_id[id]
+        if id == nil or (holder and holder ~= guid and getObjectFromGUID(holder)) then
+            id = newLinkId(pin)
+        end
+        writeMemo(pin, { mirror = "master", id = id })
+        local board = state.masters[guid] and state.masters[guid].board
+        state.masters[guid] = { id = id, board = board }
+        master_by_id[id] = guid
+        for _, slaveGuid in ipairs(slavesOf(id)) do
+            state.slaves[slaveGuid].master = guid
+        end
+        refreshLink(id)
+    elseif pin.hasTag(OBJECT_TAGS.board_mirror_slave) then
+        local id = memo.mirror == "slave" and memo.master or nil
+        local board = state.slaves[guid] and state.slaves[guid].board
+        local link = {
+            master_id = id,
+            master = id and master_by_id[id],
+            color = memo.color,
+            gm_only = memo.gm_only or nil,
+            board = board,
+        }
+        state.slaves[guid] = link
+        if id then
+            -- A pasted slave arrives with its original's color: give it its own.
+            local taken = false
+            for other, l in pairs(state.slaves) do
+                if other ~= guid and l.master_id == id and l.color == link.color then taken = true end
+            end
+            if PIN_COLOR_BY_NAME[link.color or ""] == nil or taken then
+                link.color = freeSlaveColor(id, guid)
+            end
+            saveSlaveMemo(guid)
+            refreshLink(id)
+        end
+    else
+        return
+    end
+    addPinMenu(pin)
 end
 
 -- A slave is a copy of its master without the script, so it cannot register
--- itself as a master too.
+-- itself as a master too, and without the master's description, which may
+-- hold the map bundler's record of where the master lives.
 local function spawnSlave(masterPin)
-    local masterGuid = masterPin.getGUID()
+    local entry = state.masters[masterPin.getGUID()]
+    if not entry then return end
+    local id = entry.id
     local data = masterPin.getData()
     data.GUID = nil
     data.LuaScript = ""
     data.LuaScriptState = ""
     data.XmlUI = ""
+    data.Description = ""
+    data.Memo = JSON.encode({ mirror = "slave", master = id, color = freeSlaveColor(id) })
     data.Tags = { OBJECT_TAGS.board_mirror_slave }
     data.Locked = false
     data.States = nil
@@ -650,16 +770,7 @@ local function spawnSlave(masterPin)
     spawnObjectData({
         data = data,
         position = masterPin.getPosition() + Vector(1.5, 1, 0),
-        callback_function = function(pin)
-            state.slaves[pin.getGUID()] = {
-                master = masterGuid,
-                board = nil,
-                color = freeSlaveColor(masterGuid),
-            }
-            refreshPins(masterGuid)
-            addPinMenu(pin)
-            save()
-        end,
+        callback_function = function(pin) registerPin(pin) end,
     })
 end
 
@@ -667,14 +778,14 @@ local function setGmOnly(slaveGuid, gm_only)
     local link = state.slaves[slaveGuid]
     if not link then return end
     link.gm_only = gm_only or nil
-    destroyGhostsOfSlave(slaveGuid)
-    refreshPins(link.master)
+    saveSlaveMemo(slaveGuid)
+    refreshLink(link.master_id)
     local pin = getObjectFromGUID(slaveGuid)
     if pin then addPinMenu(pin) end
-    save()
     BoardMirror.syncAll()
 end
 
+-- Deliberately removing a slave: its pin goes too.
 local function removeSlave(slaveGuid)
     local link = state.slaves[slaveGuid]
     if not link then return end
@@ -682,16 +793,7 @@ local function removeSlave(slaveGuid)
     destroyGhostsOfSlave(slaveGuid)
     local pin = getObjectFromGUID(slaveGuid)
     if pin then pin.destruct() end
-    refreshPins(link.master)
-    save()
-end
-
-local function removeMaster(masterGuid)
-    for slaveGuid, link in pairs(state.slaves) do
-        if link.master == masterGuid then removeSlave(slaveGuid) end
-    end
-    state.masters[masterGuid] = nil
-    save()
+    refreshLink(link.master_id)
 end
 
 addPinMenu = function(pin)
@@ -700,9 +802,9 @@ addPinMenu = function(pin)
     if state.masters[guid] then
         pin.addContextMenuItem("Spawn slave", function() spawnSlave(pin) end)
         pin.addContextMenuItem("Remove all slaves", function()
-            for slaveGuid, link in pairs(state.slaves) do
-                if link.master == guid then removeSlave(slaveGuid) end
-            end
+            local entry = state.masters[guid]
+            if not entry then return end
+            for _, slaveGuid in ipairs(slavesOf(entry.id)) do removeSlave(slaveGuid) end
         end)
     elseif state.slaves[guid] then
         if state.slaves[guid].gm_only then
@@ -745,52 +847,73 @@ addBoardMenu = function(board)
     board.addContextMenuItem("Mirror: show pins", function() setBoardHidden(guid, false) end)
 end
 
+-- Pins that have settled somewhere new since they were last placed: dropped
+-- by a script, or put back by the map bundler's positioner, which moves pieces
+-- with setPositionSmooth and so never fires a drop. Pins with no board yet are
+-- retried too, since the board may arrive after them.
+replacePins = function()
+    local changed = false
+    local function check(guid, entry)
+        local pin = getObjectFromGUID(guid)
+        if pin == nil or not pin.resting or pin.isSmoothMoving() or pin.held_by_color then return end
+        local p = pin.getPosition()
+        local sig = string.format("%.2f %.2f %.2f", p.x, p.y, p.z)
+        if entry.board == nil or last_seen[guid] ~= sig then
+            if placePin(pin) then changed = true end
+        end
+    end
+    for guid, entry in pairs(state.masters) do check(guid, entry) end
+    for guid, entry in pairs(state.slaves) do check(guid, entry) end
+    return changed
+end
+
+-- Brings in the links an older version kept in SAVED_DATA, by writing them
+-- onto the pins' memos.
+local function migrate(old)
+    if type(old) ~= "table" or type(old.masters) ~= "table" then return end
+    local ids = {}
+    for guid in pairs(old.masters) do
+        local pin = getObjectFromGUID(guid)
+        if pin and readMemo(pin) == nil then
+            ids[guid] = newLinkId(pin)
+            writeMemo(pin, { mirror = "master", id = ids[guid] })
+            master_by_id[ids[guid]] = guid
+        end
+    end
+    for guid, link in pairs(old.slaves or {}) do
+        local pin = getObjectFromGUID(guid)
+        if pin and readMemo(pin) == nil and ids[link.master] then
+            writeMemo(pin, {
+                mirror = "slave",
+                master = ids[link.master],
+                color = type(link.color) == "string" and link.color or nil,
+                gm_only = link.gm_only or nil,
+            })
+        end
+    end
+    master_by_id = {}
+end
+
 ------------------------------------------------------------------------------
 -- Entry points (called from main.lua)
 ------------------------------------------------------------------------------
 
 function BoardMirror.init()
-    state = SAVED_DATA.BOARD_MIRROR or {}
-    state.masters = state.masters or {}
-    state.slaves = state.slaves or {}
-    state.hidden = state.hidden or {}
+    math.randomseed(os.time())
+    local saved = SAVED_DATA.BOARD_MIRROR or {}
+    state = { masters = {}, slaves = {}, hidden = saved.hidden or {} }
+    migrate(saved)
 
     -- Ghosts are rebuilt rather than restored.
     for _, obj in ipairs(getObjectsWithTag(OBJECT_TAGS.board_mirror_ghost)) do
         obj.destruct()
     end
 
-    for guid in pairs(state.masters) do
-        if getObjectFromGUID(guid) == nil then state.masters[guid] = nil end
-    end
-    -- Objects that got the pin script while Global was not listening.
-    for _, obj in ipairs(getObjectsWithTag(OBJECT_TAGS.board_mirror_master)) do
-        if state.masters[obj.getGUID()] == nil then
-            state.masters[obj.getGUID()] = { board = nil }
-        end
-    end
-    for guid, link in pairs(state.slaves) do
-        if getObjectFromGUID(guid) == nil or state.masters[link.master] == nil then
-            state.slaves[guid] = nil
-        elseif type(link.color) ~= "string" or PIN_COLOR_BY_NAME[link.color] == nil then
-            link.color = nil
-            link.color = freeSlaveColor(link.master)
-        end
-    end
-
-    local function restore(guid, entry)
-        local pin = getObjectFromGUID(guid)
-        addPinMenu(pin)
-        if entry.board == nil then placePin(pin) end
-        if entry.board then
-            local board = getObjectFromGUID(entry.board)
-            if board then addBoardMenu(board) end
-            if state.hidden[entry.board] then applyHidden(pin, true) end
-        end
-    end
-    for guid, entry in pairs(state.masters) do restore(guid, entry) end
-    for guid, entry in pairs(state.slaves) do restore(guid, entry) end
-    for guid in pairs(state.masters) do refreshPins(guid) end
+    -- Masters first, so slaves find them.
+    for _, pin in ipairs(getObjectsWithTag(OBJECT_TAGS.board_mirror_master)) do registerPin(pin) end
+    for _, pin in ipairs(getObjectsWithTag(OBJECT_TAGS.board_mirror_slave)) do registerPin(pin) end
+    for guid in pairs(state.masters) do placePin(getObjectFromGUID(guid)) end
+    for guid in pairs(state.slaves) do placePin(getObjectFromGUID(guid)) end
     save()
 
     -- Let the deleted ghosts finish going before spawning new ones.
@@ -806,17 +929,15 @@ end
 function BoardMirror.registerMaster(guid)
     if state == nil then return end
     local pin = getObjectFromGUID(guid)
-    if pin == nil then return end
-    if state.masters[guid] == nil then
-        state.masters[guid] = { board = nil }
-    end
-    addPinMenu(pin)
-    refreshPins(guid)
-    Wait.condition(function()
-        if pin.isDestroyed() then return end
-        placePin(pin)
-        BoardMirror.syncAll()
-    end, function() return pin.isDestroyed() or pin.resting end, 5)
+    if pin then registerPin(pin) end
+end
+
+-- Pins coming out of a bag, a bundle or a paste. Masters also register from
+-- their own script; registering twice is harmless. The heartbeat places them
+-- once they settle.
+function BoardMirror.onSpawn(obj)
+    if state == nil or not isPin(obj) then return end
+    registerPin(obj)
 end
 
 function BoardMirror.onPickUp(obj)
@@ -903,7 +1024,8 @@ function BoardMirror.onPing(player, position, object)
     if pinGuid then
         local targets = {}
         if state.slaves[pinGuid] then
-            table.insert(targets, getObjectFromGUID(state.slaves[pinGuid].master))
+            local master = state.slaves[pinGuid].master
+            if master then table.insert(targets, getObjectFromGUID(master)) end
         else
             for guid, link in pairs(state.slaves) do
                 if link.master == pinGuid then table.insert(targets, getObjectFromGUID(guid)) end
@@ -959,18 +1081,22 @@ end
 function BoardMirror.onDestroy(obj)
     if state == nil or isGhost(obj) then return end
     local guid = obj.getGUID()
+    -- A pin leaving the table (bundled, bagged, deleted) only drops out of the
+    -- links: its slaves keep their pins and pick the link up again when it
+    -- comes back, since the link lives on the pins' memos.
     if state.masters[guid] then
-        -- Saving a script on the pin reloads it, which also lands here: only
-        -- remove the master if it has not come back under the same GUID.
-        Wait.time(function()
-            if getObjectFromGUID(guid) == nil then removeMaster(guid) end
-        end, 1)
+        local id = state.masters[guid].id
+        state.masters[guid] = nil
+        if master_by_id[id] == guid then master_by_id[id] = nil end
+        for _, slaveGuid in ipairs(slavesOf(id)) do
+            state.slaves[slaveGuid].master = nil
+            destroyGhostsOfSlave(slaveGuid)
+        end
     elseif state.slaves[guid] then
-        local master = state.slaves[guid].master
+        local id = state.slaves[guid].master_id
         state.slaves[guid] = nil
         destroyGhostsOfSlave(guid)
-        refreshPins(master)
-        save()
+        refreshLink(id)
     else
         stopFollowing(guid)
         destroyGhostsOfToken(guid)
