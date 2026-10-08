@@ -58,7 +58,10 @@
 -- be edited in a text editor and pasted back instead of field by field. SAVE TO
 -- NOTE spawns a Notecard holding the same JSON, plus a "stacker" block with the
 -- position 0, rotation, scale and merge distance, so a finished stack can be
--- kept and rebuilt later by pasting the note's text into the box and pressing ADD.
+-- kept and rebuilt later. TTS cuts a long note's text short, so the full JSON
+-- also goes in the note's `memo`, which it does not trim: paste the note's GUID
+-- into the box and press ADD to load it. The note's text is then only a copy to
+-- read (and is complete on short stacks).
 
 -- Where the panel sits on the object. Object UI is drawn relative to the object,
 -- so these may need adjusting for the object the script is put on.
@@ -359,7 +362,7 @@ function rebuildUI()
 <Panel id="root" visibility="%s" position="%s" rotation="%s" scale="%s" width="%d" height="%d" color="#0F1015F2" padding="10 10 10 10">
 <VerticalLayout spacing="6" childForceExpandHeight="false">
     <Text class="title" preferredHeight="26">DIORAMA STACKER</Text>
-    <InputField id="paste" preferredHeight="70" lineType="MultiLineNewLine" fontSize="12" placeholder="Paste layer image links (one per line) or a Scriptorium stack JSON" onValueChanged="onPasteChanged" />
+    <InputField id="paste" preferredHeight="70" lineType="MultiLineNewLine" fontSize="12" placeholder="Paste layer image links (one per line), a stack JSON, or a saved note's GUID" onValueChanged="onPasteChanged" />
     <HorizontalLayout preferredHeight="32" spacing="6">
         <Button text="ADD" onClick="onAdd" colors="#3B82F6|#2563EB|#1D4ED8|#3B82F680" tooltip="Links are added to the list; a stack JSON replaces it" />
         <Button text="EDIT AS JSON" onClick="onEditAsJson" />
@@ -435,9 +438,25 @@ end
 -- One button for the paste box: text that starts with "{" is a stack JSON and
 -- replaces the list; anything else is links, added to it. A link never starts
 -- with "{", so the two cannot be confused.
+-- One button for the paste box, deciding by what was pasted:
+--   starts with "{"      a stack JSON, which replaces the list;
+--   one GUID, nothing else  a note made by SAVE TO NOTE, whose full JSON is in its memo;
+--   anything else        links, added to the list.
+-- A link never starts with "{" and is never six bare hex digits, so these cannot
+-- be confused.
 function onAdd(player)
     if not isAuthorized(player) then return end
-    if pasteBuffer:match("^%s*{") then
+    local guid = pasteBuffer:match("^%s*(%x%x%x%x%x%x)%s*$")
+    if guid then
+        local note = getObjectFromGUID(guid)
+        local memo = note and note.memo
+        if type(memo) ~= "string" or not memo:match("^%s*{") then
+            tell(player, "Object " .. guid .. " is not a note saved by SAVE TO NOTE.", { 1, 0.6, 0.2 })
+            return
+        end
+        pasteBuffer = memo
+        onImportJson(player)
+    elseif pasteBuffer:match("^%s*{") then
         onImportJson(player)
     else
         onAddLinks(player)
@@ -557,7 +576,7 @@ end
 -- and paste back with ADD.
 -- The current list and settings as stack JSON: what EDIT AS JSON and SAVE TO
 -- NOTE both write, and what ADD reads back.
-local function stackJson()
+local function stackJson(compact)
     local layers = {}
     for i, layer in ipairs(state.layers) do
         -- A split layer goes out as "0.1*3", the way it was typed, rather than as
@@ -566,7 +585,7 @@ local function stackJson()
         local parent = layer.on and state.layers[layerIndexById(layer.on) or 0]
         layers[i] = { name = layer.name, url = layer.url, height = height, y = layer.y, on = parent and parent.name or nil }
     end
-    return JSON.encode_pretty({
+    return (compact and JSON.encode or JSON.encode_pretty)({
         format = "scriptorium-diorama-stack",
         version = 1,
         map = state.map,
@@ -601,8 +620,14 @@ function onSaveToNote(player)
     local title = "Diorama stack: " .. (state.map or "untitled") .. " (" .. os.date("%Y-%m-%d %H:%M") .. ")"
     local note = spawnObject({ type = "Notecard", position = { p.x + 3, p.y + 1, p.z }, sound = false })
     note.setName(title)
-    note.setDescription(stackJson())
-    tell(player, "Saved " .. #state.layers .. " layer(s) to the note \"" .. title .. "\".")
+    -- The full stack goes in the memo, which TTS keeps whole; the text is a
+    -- compact copy that TTS may cut short on a big stack.
+    local json = stackJson(true)
+    note.memo = json
+    note.setDescription(json)
+    local guid = note.getGUID()
+    tell(player, "Saved " .. #state.layers .. " layer(s) to note " .. guid
+        .. ". To load it later, paste " .. guid .. " in the box and press ADD.")
 end
 
 -- Two presses, because it throws away every height and Y typed so far. Spawned
