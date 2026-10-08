@@ -30,7 +30,7 @@ Shows the tokens on one board as flat, colored shadows on other boards, e.g. a f
 2. Drop the master pin on the board to mirror *from*.
 3. Right-click it > **Spawn slave**, and drop the slave on the board to mirror *onto*. Repeat for more boards.
 
-* **Master pin**: Spawn slave, Remove all slaves. Deleting it removes its slaves; deleting a slave removes only that slave. Putting pins in a bag or bundle keeps the link.
+* **Master pin**: Mirror: initialize (sets up the master and all its slaves and finds their boards; use it after unbundling a map), Spawn slave, Remove all slaves. Deleting it removes its slaves; deleting a slave removes only that slave. Putting pins in a bag or bundle keeps the link.
 * **Slave pin**: Shadows: GM only / show to all, Unlink.
 * **Linked boards**: Mirror: hide pins / show pins. Pins are only ever visible to Black; hiding them hides them from Black too.
 * Pinging a shadow pings its token and vice versa; pinging a slave pin pings its master and vice versa, and every board in that link glows in the color of its pin.
