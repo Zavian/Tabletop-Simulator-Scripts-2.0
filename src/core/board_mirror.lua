@@ -1171,7 +1171,9 @@ end
 
 function BoardMirror.onDestroy(obj)
     if state == nil or isGhost(obj) then return end
+    -- Some objects have no GUID (TTS destroys them too when a table closes).
     local guid = obj.getGUID()
+    if guid == nil then return end
     -- A pin leaving the table first drops out of the links. If it went into a
     -- bag or bundle, or is only reloading its script, that is all: its slaves
     -- keep their pins and link up again when it is initialized again. A master
