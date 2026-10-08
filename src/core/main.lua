@@ -205,6 +205,7 @@ end
 function updateFlyingVisibility(params)
     if not params or not params.guid then return end
     flying.updateVisibility(params.guid, params.visible)
+    board_mirror.onVisibilityChanged(params.guid)
 end
 
 function onSave()

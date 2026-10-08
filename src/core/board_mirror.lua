@@ -20,8 +20,9 @@
 -- (enemy, ally, neutral) for the rest, mixed with pink when it is face down. It
 -- carries the token's name, is locked, not interactable and has its colliders
 -- turned off. It exists while its token is over the master board, and is
--- highlighted in the holder's color while the token is carried. A slave can be
--- set to "GM only", hiding its shadows from everyone but Black.
+-- highlighted in the holder's color while the token is carried. It is
+-- invisible to whoever its token is invisible to, and a slave can be set to
+-- "GM only", hiding its shadows from everyone but Black as well.
 --
 -- Pings. Pinging a shadow pings its token and the other way round; pinging a
 -- slave pin pings its master and the other way round.
@@ -88,10 +89,12 @@ local state = nil
 --   timers[tokenGuid] = Wait id of the follow loop
 --   rest_offset[tokenGuid] = how far the token last rested above its master board
 --   last_seen[guid] = what a token or board looked like when last synced
+--   ghost_hidden[ghostGuid] = the player colors a shadow is invisible to
 local ghosts = {}
 local timers = {}
 local rest_offset = {}
 local last_seen = {}
+local ghost_hidden = {}
 local board_menus = {}
 local echoing = false
 
@@ -211,6 +214,37 @@ local function tokenColor(token)
     return brighten(c.r, c.g, c.b)
 end
 
+-- The player colors a token is invisible to. TTS's own list when this build
+-- exposes it; otherwise the monster UI's is_visible(), the same source the
+-- flying module uses: hidden means hidden from everyone but Black.
+local function tokenHiddenFrom(token)
+    local ok, list = pcall(function() return token.getInvisibleTo() end)
+    if ok and type(list) == "table" then return list end
+    if token.getVar("is_visible") then
+        local called, visible = pcall(function() return token.call("is_visible") end)
+        if called and visible == false then return utils.hideFromPlayersArray() end
+    end
+    return {}
+end
+
+-- A shadow is hidden from whoever its token is hidden from, plus every player
+-- but Black when its slave is GM only.
+local function shadowHiddenFrom(token, link)
+    local seen, list = {}, {}
+    local function add(colors)
+        for _, c in ipairs(colors) do
+            if not seen[c] then
+                seen[c] = true
+                table.insert(list, c)
+            end
+        end
+    end
+    add(tokenHiddenFrom(token))
+    if link and link.gm_only then add(utils.hideFromPlayersArray()) end
+    table.sort(list)
+    return list
+end
+
 local function tokenName(token)
     local name = token.getName()
     if name == nil or name == "" then return "" end
@@ -247,6 +281,7 @@ local function destroyGhost(tokenGuid, slaveGuid)
     local g = byToken[slaveGuid]
     byToken[slaveGuid] = nil
     if g.obj and not g.obj.isDestroyed() then
+        ghost_hidden[g.obj.getGUID()] = nil
         g.obj.destruct()
     end
 end
@@ -270,9 +305,17 @@ local function scaleFactor(masterBoard, slaveBoard)
 end
 
 -- Moves an existing ghost to mirror the token.
-local function placeGhost(g, token, masterBoard, slaveBoard)
+local function placeGhost(g, token, masterBoard, slaveBoard, link)
     local obj = g.obj
     if not obj or obj.isDestroyed() then return end
+
+    local hidden = shadowHiddenFrom(token, link)
+    local hiddenKey = table.concat(hidden, ",")
+    if g.hidden ~= hiddenKey then
+        g.hidden = hiddenKey
+        obj.setInvisibleTo(hidden)
+        ghost_hidden[obj.getGUID()] = hidden
+    end
 
     local pos = token.getPosition()
     local world = slaveBoard.positionToWorld(masterBoard.positionToLocal(pos))
@@ -332,10 +375,8 @@ local function spawnGhost(token, slaveGuid, masterBoard, slaveBoard)
             obj.interactable = false
             obj.use_gravity = false
             disableColliders(obj)
-            local link = state.slaves[slaveGuid]
-            if link and link.gm_only then
-                obj.setInvisibleTo(utils.hideFromPlayersArray())
-            end
+            -- Hidden until placeGhost() sets who may see it.
+            obj.setInvisibleTo(utils.allPlayersArray())
 
             -- Size the disc to the token's footprint.
             local tb = token.getBoundsNormalized()
@@ -383,7 +424,7 @@ function BoardMirror.sync(token)
                     if g == nil then
                         spawnGhost(token, slaveGuid, masterBoard, slaveBoard)
                     else
-                        placeGhost(g, token, masterBoard, slaveBoard)
+                        placeGhost(g, token, masterBoard, slaveBoard, link)
                     end
                 end
             end
@@ -413,9 +454,10 @@ end
 -- What a token looks like, as far as its shadows care.
 local function tokenSignature(token)
     local p, r = token.getPosition(), token.getRotation()
-    return string.format("%.2f %.2f %.2f %.0f %.0f %.0f %.3f %s %s %s",
+    return string.format("%.2f %.2f %.2f %.0f %.0f %.0f %.3f %s %s %s %s",
         p.x, p.y, p.z, r.x, r.y, r.z, token.getScale().x,
-        token.getColorTint():toHex(), tostring(token.is_face_down), token.getName())
+        token.getColorTint():toHex(), tostring(token.is_face_down), token.getName(),
+        table.concat(tokenHiddenFrom(token), ","))
 end
 
 local function boardSignature(board)
@@ -813,10 +855,22 @@ local function pingHits(position, obj)
 end
 
 -- Our own pings may come back through onPlayerPing; ignore them for a moment.
+-- Pings are not echoed onto anything the pinging player cannot see.
+local function hiddenFromPlayer(obj, player_color)
+    local list = ghost_hidden[obj.getGUID()]
+    if list == nil and isTracked(obj) then list = tokenHiddenFrom(obj) end
+    for _, c in ipairs(list or {}) do
+        if c == player_color then return true end
+    end
+    return false
+end
+
 local function echoPing(player_color, targets)
     echoing = true
     for _, obj in ipairs(targets) do
-        utils.pingObject(player_color, obj.getGUID())
+        if not hiddenFromPlayer(obj, player_color) then
+            utils.pingObject(player_color, obj.getGUID())
+        end
     end
     Wait.frames(function() echoing = false end, 10)
 end
@@ -887,6 +941,13 @@ function BoardMirror.onPing(player, position, object)
         if g.obj and not g.obj.isDestroyed() then table.insert(targets, g.obj) end
     end
     if #targets > 0 then echoPing(player.color, targets) end
+end
+
+-- The monster UI's visibility toggle, relayed by main.lua.
+function BoardMirror.onVisibilityChanged(guid)
+    if state == nil then return end
+    local token = getObjectFromGUID(guid)
+    if token and isTracked(token) then BoardMirror.sync(token) end
 end
 
 -- Flipping or spinning a token does not pick it up, so follow it from here.

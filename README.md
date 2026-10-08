@@ -34,6 +34,7 @@ Shows the tokens on one board as flat, colored shadows on other boards, e.g. a f
 * **Slave pin**: Shadows: GM only / show to all, Unlink.
 * **Linked boards**: Mirror: hide pins / show pins.
 * Pinging a shadow pings its token and vice versa; pinging a slave pin pings its master and vice versa.
+* Shadows are invisible to whoever their token is invisible to, and pings never cross onto something the pinging player cannot see.
 * Shadows are blue for players, the token's tint otherwise, pink-tinted when the token is face down, and highlighted in your color while you carry the token.
 
 ## Who am I?
