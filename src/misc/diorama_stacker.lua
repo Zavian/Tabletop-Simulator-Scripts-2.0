@@ -28,6 +28,15 @@
 --
 -- Pieces are tagged with this object's GUID in `memo`, so CLEAR finds them even
 -- after a reload or a copy/paste of the controller.
+--
+-- Stack JSON. Scriptorium's diorama export can upload every layer to
+-- upload.zaes.dev and hand back a JSON document; paste it in the box and press
+-- IMPORT JSON to replace the layer list with it:
+--   { "format": "scriptorium-diorama-stack", "version": 1, "map": "...",
+--     "layers": [ { "name", "url", "height", "y" }, ... ] }   -- bottom first
+-- Heights in it are already token thickness (Scriptorium's height / 10). EDIT AS
+-- JSON puts the current list in the box in the same format, so many heights can
+-- be edited in a text editor and pasted back instead of field by field.
 
 -- Where the panel sits on the object. Object UI is drawn relative to the object,
 -- so these may need adjusting for the object the script is put on.
@@ -52,6 +61,7 @@ local state = {
 }
 
 local pasteBuffer = ""
+local clearLayersArmed = false
 local buildId = 0 -- bumped on every build/clear so a stale build stops placing
 local status = "Paste links and press ADD."
 
@@ -108,11 +118,20 @@ end
 -- Scriptorium names a layer file `<map>__<layer>__h<height>.png`, with the
 -- height's dot written as a dash. When a link still carries that filename the
 -- layer's name and height come from it; a Steam Cloud link carries neither.
+-- Scriptorium heights are ten times token thickness (a thickness of 1 is huge in
+-- TTS), hence the division -- the same conversion its stack JSON applies.
+local SCRIPTORIUM_HEIGHT_TO_THICKNESS = 0.1
+local DEFAULT_HEIGHT = 0.1
+
 local function describeUrl(url, index)
     local file = url:gsub("[?#].*$", ""):match("([^/\\]+)$") or ""
     local layer, h = file:match("^.-__(.-)__h([%d%-]+)%.[pP][nN][gG]$")
     local height = h and tonumber((h:gsub("%-", "."))) or nil
-    return layer or ("Layer " .. index), height
+    return layer or ("Layer " .. index), height and height * SCRIPTORIUM_HEIGHT_TO_THICKNESS
+end
+
+local function clampHeight(n)
+    return math.min(math.max(n, MIN_THICKNESS), MAX_THICKNESS * MAX_COPIES)
 end
 
 -- Height -> number of copies and the thickness of each.
@@ -158,7 +177,7 @@ function rebuildUI()
             i)
     end
 
-    local height = 330 + #state.layers * (ROW_HEIGHT + 6)
+    local height = 368 + #state.layers * (ROW_HEIGHT + 6)
 
     local xml = string.format([[
 <Defaults>
@@ -170,11 +189,16 @@ function rebuildUI()
 <Panel id="root" visibility="%s" position="%s" rotation="%s" scale="%s" width="%d" height="%d" color="#0F1015F2" padding="10 10 10 10">
 <VerticalLayout spacing="6" childForceExpandHeight="false">
     <Text class="title" preferredHeight="26">DIORAMA STACKER</Text>
-    <InputField id="paste" preferredHeight="70" lineType="MultiLineNewLine" fontSize="12" placeholder="Paste layer image links here, one per line" onValueChanged="onPasteChanged" />
+    <InputField id="paste" preferredHeight="70" lineType="MultiLineNewLine" fontSize="12" placeholder="Paste layer image links (one per line) or a Scriptorium stack JSON" onValueChanged="onPasteChanged" />
     <HorizontalLayout preferredHeight="32" spacing="6">
         <Button text="ADD LINKS" onClick="onAddLinks" colors="#3B82F6|#2563EB|#1D4ED8|#3B82F680" />
+        <Button text="IMPORT JSON" onClick="onImportJson" colors="#3B82F6|#2563EB|#1D4ED8|#3B82F680" />
+        <Button text="EDIT AS JSON" onClick="onEditAsJson" />
+    </HorizontalLayout>
+    <HorizontalLayout preferredHeight="32" spacing="6">
         <Button text="BUILD" onClick="onBuild" colors="#10B981|#059669|#047857|#10B98180" />
         <Button text="CLEAR PIECES" onClick="onClearPieces" colors="#F59E0B|#D97706|#B45309|#F59E0B80" />
+        <Button id="btn_clear_layers" text="CLEAR LAYERS" onClick="onClearLayers" colors="#EF4444|#DC2626|#B91C1C|#EF444480" />
     </HorizontalLayout>
     <Text class="dim" preferredHeight="18" alignment="MiddleLeft">Position 0 (world) - everything is measured from here</Text>
     <HorizontalLayout preferredHeight="30" spacing="6" childForceExpandWidth="false">
@@ -226,7 +250,7 @@ function onAddLinks(player)
     for url in pasteBuffer:gmatch("%S+") do
         local index = #state.layers + 1
         local name, height = describeUrl(url, index)
-        state.layers[index] = { url = url, name = name, height = height or 1, y = 0 }
+        state.layers[index] = { url = url, name = name, height = height or DEFAULT_HEIGHT, y = 0 }
         added = added + 1
     end
     pasteBuffer = ""
@@ -235,6 +259,72 @@ function onAddLinks(player)
     else
         status = "Added " .. added .. " layer(s). Set heights and Y, then BUILD."
     end
+    rebuildUI()
+end
+
+-- Replaces the layer list with a Scriptorium stack JSON (format in the header).
+-- Validated whole before anything changes: a half-imported stack is worse than
+-- none, because it builds and looks almost right.
+function onImportJson(player)
+    if not isAuthorized(player) then return end
+    local ok, data = pcall(JSON.decode, pasteBuffer)
+    if not ok or type(data) ~= "table" or type(data.layers) ~= "table" or #data.layers == 0 then
+        tell(player, "That is not a stack JSON: expected an object with a non-empty \"layers\" list.", { 1, 0.6, 0.2 })
+        return
+    end
+    local layers = {}
+    for i, entry in ipairs(data.layers) do
+        local height = tonumber(type(entry) == "table" and entry.height)
+        if type(entry) ~= "table" or type(entry.url) ~= "string" or entry.url == "" or not height or height <= 0 then
+            tell(player, "Layer " .. i .. " in the JSON needs a \"url\" and a positive \"height\".", { 1, 0.6, 0.2 })
+            return
+        end
+        layers[i] = {
+            url = entry.url,
+            name = type(entry.name) == "string" and entry.name ~= "" and entry.name or ("Layer " .. i),
+            height = clampHeight(height),
+            y = tonumber(entry.y) or 0,
+        }
+    end
+    state.layers = layers
+    pasteBuffer = ""
+    clearLayersArmed = false
+    status = "Imported " .. #layers .. " layer(s)" .. (type(data.map) == "string" and (" of " .. data.map) or "") .. ". Press BUILD."
+    rebuildUI()
+end
+
+-- Puts the current list in the paste box as stack JSON, to copy out, edit in bulk
+-- and paste back with IMPORT JSON.
+function onEditAsJson(player)
+    if not isAuthorized(player) then return end
+    local layers = {}
+    for i, layer in ipairs(state.layers) do
+        layers[i] = { name = layer.name, url = layer.url, height = layer.height, y = layer.y }
+    end
+    pasteBuffer = JSON.encode_pretty({ format = "scriptorium-diorama-stack", version = 1, layers = layers })
+    self.UI.setAttribute("paste", "text", pasteBuffer)
+    tell(player, "Current layers are in the box above. Edit them and press IMPORT JSON.")
+end
+
+-- Two presses, because it throws away every height and Y typed so far. Spawned
+-- pieces are untouched; that is CLEAR PIECES.
+function onClearLayers(player)
+    if not isAuthorized(player) then return end
+    if not clearLayersArmed then
+        clearLayersArmed = true
+        self.UI.setAttribute("btn_clear_layers", "text", "SURE? PRESS AGAIN")
+        Wait.time(function()
+            if clearLayersArmed then
+                clearLayersArmed = false
+                self.UI.setAttribute("btn_clear_layers", "text", "CLEAR LAYERS")
+            end
+        end, 3)
+        return
+    end
+    clearLayersArmed = false
+    local removed = #state.layers
+    state.layers = {}
+    status = "Removed " .. removed .. " layer(s) from the list. Spawned pieces are untouched."
     rebuildUI()
 end
 
@@ -263,10 +353,6 @@ local function endField(getter)
 end
 
 local function layerAt(id) return state.layers[indexFromId(id)] end
-
-local function clampHeight(n)
-    return math.min(math.max(n, MIN_THICKNESS), MAX_THICKNESS * MAX_COPIES)
-end
 
 onLayerHeight = numberField(function(id, n)
     local layer = layerAt(id)
