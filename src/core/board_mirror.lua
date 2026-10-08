@@ -720,6 +720,10 @@ end
 -- starts without slaves instead of sharing them.
 local function registerPin(pin)
     local guid = pin.getGUID()
+    -- Back on the table: whatever put it away is over. A stale mark would make
+    -- a later delete look like it went into a bag (the infinite bag puts its
+    -- spare in straight away, and it comes out with the same GUID).
+    stashed[guid] = nil
     local memo = readMemo(pin) or {}
 
     -- Help text older versions wrote: the map bundler only records a piece's
