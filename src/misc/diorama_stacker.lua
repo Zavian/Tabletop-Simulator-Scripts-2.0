@@ -127,6 +127,13 @@ end
 
 local HIGHLIGHT_COLOR = { 1, 0.85, 0.1 }
 local HIGHLIGHT_SECONDS = 3
+-- The name button's normal look, and the look it takes while its pieces are
+-- highlighted, so the row and the table say the same thing for the same time.
+local NAME_COLORS = "#00000000|#FFFFFF1A|#FFFFFF33|#00000000"
+local NAME_TEXT_COLOR = "#F3F4F6"
+local NAME_LIT_COLORS = "#FFD91A40|#FFD91A60|#FFD91A80|#FFD91A40"
+local NAME_LIT_TEXT_COLOR = "#FFD91A"
+local nameLitToken = {} -- per row: the latest highlight, so an older timer cannot unlight a newer one
 
 -- Every layer gets an id once, whichever way it arrived (links, JSON, an old save).
 local function ensureLayerIds()
@@ -239,7 +246,7 @@ function rebuildUI()
 </HorizontalLayout>]],
             ROW_HEIGHT,
             string.format(
-                '<Button id="nm_%d" preferredWidth="250" textAlignment="MiddleLeft" fontStyle="Normal" colors="#00000000|#FFFFFF1A|#FFFFFF33|#00000000" onClick="onSelectLayer" tooltip="Click to highlight and ping its pieces. %s">%s</Button>',
+                '<Button id="nm_%d" preferredWidth="250" textAlignment="MiddleLeft" fontStyle="Normal" colors="' .. NAME_COLORS .. '" textColor="' .. NAME_TEXT_COLOR .. '" onClick="onSelectLayer" tooltip="Click to highlight and ping its pieces. %s">%s</Button>',
                 i, xmlEscape(layer.url), xmlEscape(i .. ". " .. layer.name)),
             input("h_" .. i, heightText(layer), 80, "onLayerHeight", "None"),
             input("y_" .. i, fmt(layer.y), 80, "onLayerY"),
@@ -490,6 +497,17 @@ function onSelectLayer(player, _, id)
         return
     end
     player.pingTable({ top.x, topY, top.z })
+
+    local nameId = "nm_" .. indexFromId(id)
+    local token = (nameLitToken[nameId] or 0) + 1
+    nameLitToken[nameId] = token
+    self.UI.setAttribute(nameId, "colors", NAME_LIT_COLORS)
+    self.UI.setAttribute(nameId, "textColor", NAME_LIT_TEXT_COLOR)
+    Wait.time(function()
+        if nameLitToken[nameId] ~= token then return end
+        self.UI.setAttribute(nameId, "colors", NAME_COLORS)
+        self.UI.setAttribute(nameId, "textColor", NAME_TEXT_COLOR)
+    end, HIGHLIGHT_SECONDS)
     tell(player, layer.name .. ": " .. count .. " piece(s).")
 end
 
