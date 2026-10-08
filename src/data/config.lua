@@ -150,7 +150,10 @@ OBJECT_TAGS = {
     infinite_container = "infinite_container",
     movement_measurement = "movement_measurement",
     flying = "flying",
-    player = "player_token"
+    player = "player_token",
+    board_mirror_master = "board_mirror_master",
+    board_mirror_slave = "board_mirror_slave",
+    board_mirror_ghost = "board_mirror_ghost"
 }
 
 SAVED_DATA = {

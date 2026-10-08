@@ -10,6 +10,7 @@ local updater = require('src.core.updater')
 local promise = require('src.core.promise')
 local movement_measurement = require('src.core.movement_measurement')
 local flying = require('src.core.flying')
+local board_mirror = require('src.core.board_mirror')
 
 -- Load UI Manager
 
@@ -27,6 +28,7 @@ function onLoad(saved_data)
     promise.WaitFrames(35, function()
 
         initializeTableComponents()
+        board_mirror.init()
 
 
         -- Scan and initialize any existing flying tokens
@@ -113,6 +115,8 @@ function onObjectPickUp(player_color, pick_obj)
         end
         flying.onPickUp(pick_obj, player_color)
     end
+
+    board_mirror.onPickUp(pick_obj)
 end
 
 function onObjectDrop(player_color, drop_obj)
@@ -126,6 +130,25 @@ function onObjectDrop(player_color, drop_obj)
     if drop_obj.hasTag(OBJECT_TAGS.flying) then
         flying.onDrop(drop_obj)
     end
+
+    board_mirror.onDrop(drop_obj, player_color)
+end
+
+function onObjectDestroy(obj)
+    board_mirror.onDestroy(obj)
+end
+
+function onObjectRotate(obj, spin, flip, player_color, old_spin, old_flip)
+    board_mirror.onRotate(obj)
+end
+
+function onPlayerPing(player, position, object)
+    board_mirror.onPing(player, position, object)
+end
+
+function boardMirror_registerMaster(params)
+    if not params or not params.guid then return end
+    board_mirror.registerMaster(params.guid)
 end
 
 function resetFlyButton(obj, color)
@@ -182,6 +205,7 @@ end
 function updateFlyingVisibility(params)
     if not params or not params.guid then return end
     flying.updateVisibility(params.guid, params.visible)
+    board_mirror.onVisibilityChanged(params.guid)
 end
 
 function onSave()
