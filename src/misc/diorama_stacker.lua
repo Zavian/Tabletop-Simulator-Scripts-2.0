@@ -38,7 +38,7 @@
 --
 -- Stack JSON. Scriptorium's diorama export can upload every layer to
 -- upload.zaes.dev and hand back a JSON document; paste it in the box and press
--- IMPORT JSON to replace the layer list with it:
+-- ADD to replace the layer list with it (ADD tells JSON from links by the "{"):
 --   { "format": "scriptorium-diorama-stack", "version": 1, "map": "...",
 --     "layers": [ { "name", "url", "height", "y" }, ... ] }   -- bottom first
 -- Heights in it are already token thickness (Scriptorium's height / 10). EDIT AS
@@ -46,7 +46,7 @@
 -- be edited in a text editor and pasted back instead of field by field. SAVE TO
 -- NOTE spawns a Notecard holding the same JSON, plus a "stacker" block with the
 -- position 0, rotation, scale and merge distance, so a finished stack can be
--- kept and rebuilt later by pasting the note's text into IMPORT JSON.
+-- kept and rebuilt later by pasting the note's text into the box and pressing ADD.
 
 -- Where the panel sits on the object. Object UI is drawn relative to the object,
 -- so these may need adjusting for the object the script is put on.
@@ -261,8 +261,7 @@ function rebuildUI()
     <Text class="title" preferredHeight="26">DIORAMA STACKER</Text>
     <InputField id="paste" preferredHeight="70" lineType="MultiLineNewLine" fontSize="12" placeholder="Paste layer image links (one per line) or a Scriptorium stack JSON" onValueChanged="onPasteChanged" />
     <HorizontalLayout preferredHeight="32" spacing="6">
-        <Button text="ADD LINKS" onClick="onAddLinks" colors="#3B82F6|#2563EB|#1D4ED8|#3B82F680" />
-        <Button text="IMPORT JSON" onClick="onImportJson" colors="#3B82F6|#2563EB|#1D4ED8|#3B82F680" />
+        <Button text="ADD" onClick="onAdd" colors="#3B82F6|#2563EB|#1D4ED8|#3B82F680" tooltip="Links are added to the list; a stack JSON replaces it" />
         <Button text="EDIT AS JSON" onClick="onEditAsJson" />
         <Button text="SAVE TO NOTE" onClick="onSaveToNote" colors="#8B5CF6|#7C3AED|#6D28D9|#8B5CF680" />
     </HorizontalLayout>
@@ -313,6 +312,18 @@ end
 
 function onPasteChanged(player, value)
     pasteBuffer = value or ""
+end
+
+-- One button for the paste box: text that starts with "{" is a stack JSON and
+-- replaces the list; anything else is links, added to it. A link never starts
+-- with "{", so the two cannot be confused.
+function onAdd(player)
+    if not isAuthorized(player) then return end
+    if pasteBuffer:match("^%s*{") then
+        onImportJson(player)
+    else
+        onAddLinks(player)
+    end
 end
 
 function onAddLinks(player)
@@ -385,14 +396,14 @@ function onImportJson(player)
 end
 
 -- Puts the current list in the paste box as stack JSON, to copy out, edit in bulk
--- and paste back with IMPORT JSON.
+-- and paste back with ADD.
 -- The current list and settings as stack JSON: what EDIT AS JSON and SAVE TO
--- NOTE both write, and what IMPORT JSON reads back.
+-- NOTE both write, and what ADD reads back.
 local function stackJson()
     local layers = {}
     for i, layer in ipairs(state.layers) do
         -- A split layer goes out as "0.1*3", the way it was typed, rather than as
-        -- 0.30000000000000004 plus a count; IMPORT JSON reads either.
+        -- 0.30000000000000004 plus a count; ADD reads either.
         local height = layer.copies and heightText(layer) or tonumber(fmt(layer.height))
         layers[i] = { name = layer.name, url = layer.url, height = height, y = layer.y }
     end
@@ -416,11 +427,11 @@ function onEditAsJson(player)
     if not isAuthorized(player) then return end
     pasteBuffer = stackJson()
     self.UI.setAttribute("paste", "text", pasteBuffer)
-    tell(player, "Current layers are in the box above. Edit them and press IMPORT JSON.")
+    tell(player, "Current layers are in the box above. Edit them and press ADD.")
 end
 
 -- Spawns a Notecard beside the controller holding the stack JSON, to keep a
--- finished stack. Its text pastes straight back into IMPORT JSON.
+-- finished stack. Its text pastes straight back into the box for ADD.
 function onSaveToNote(player)
     if not isAuthorized(player) then return end
     if #state.layers == 0 then
