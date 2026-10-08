@@ -101,7 +101,7 @@ local master_by_id = {}
 -- Runtime only:
 --   ghosts[tokenGuid][slavePinGuid] = { obj = Object|nil, name = string, color = hex string,
 --                                       highlight = player color it is highlighted in,
---                                       scale = token scale it was sized for }
+--                                       size = token scale x board ratio it was sized for }
 --   timers[tokenGuid] = Wait id of the follow loop
 --   rest_offset[tokenGuid] = how far the token last rested above its master board
 --   last_seen[guid] = what a token or board looked like when last synced
@@ -387,7 +387,7 @@ end
 local function spawnGhost(token, slaveGuid, masterBoard, slaveBoard)
     local tokenGuid = token.getGUID()
     local factor = scaleFactor(masterBoard, slaveBoard)
-    local g = { obj = nil, name = nil, color = nil, bottom = 0, scale = token.getScale().x }
+    local g = { obj = nil, name = nil, color = nil, bottom = 0, size = token.getScale().x * factor }
     ghosts[tokenGuid] = ghosts[tokenGuid] or {}
     ghosts[tokenGuid][slaveGuid] = g
 
@@ -448,8 +448,12 @@ function BoardMirror.sync(token)
                 if slaveBoard then
                     wanted[slaveGuid] = true
                     local g = ghosts[tokenGuid] and ghosts[tokenGuid][slaveGuid]
-                    -- A shadow's size is set when it spawns: respawn it on a rescale.
-                    if g and math.abs(g.scale - token.getScale().x) > 0.001 then
+                    -- A shadow's size is set when it spawns, from the token's
+                    -- scale and the two boards' scale ratio: respawn it when
+                    -- either changes, e.g. the map positioner growing boards
+                    -- back from their bundled 0.25 one by one.
+                    local size = token.getScale().x * scaleFactor(masterBoard, slaveBoard)
+                    if g and math.abs(g.size - size) > 0.01 * size then
                         destroyGhost(tokenGuid, slaveGuid)
                         g = nil
                     end
