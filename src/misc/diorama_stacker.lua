@@ -619,7 +619,6 @@ function build(player)
                 stackable = false,
             })
             obj.setLock(true)
-            obj.setName(count > 1 and string.format("%s (%d/%d)", layer.name, c, count) or layer.name)
             obj.memo = pieceTag(layer)
             pieces[#pieces + 1] = { obj = obj, layer = i, thickness = thickness }
         end
