@@ -892,7 +892,11 @@ replacePins = function()
         local p = pin.getPosition()
         local sig = string.format("%.2f %.2f %.2f", p.x, p.y, p.z)
         if entry.board == nil or last_seen[guid] ~= sig then
-            if placePin(pin) then changed = true end
+            -- Any settle on a board counts, not only a change of board: an
+            -- unbundled pin is placed once in the positioner's pile and again
+            -- at home, often on the same board both times.
+            placePin(pin)
+            if entry.board then changed = true end
         end
     end
     for guid, entry in pairs(state.masters) do check(guid, entry) end
@@ -921,7 +925,8 @@ local function watchPin(pin)
         local p = pin.getPosition()
         local sig = string.format("%.2f %.2f %.2f", p.x, p.y, p.z)
         if entry.board == nil or last_seen[guid] ~= sig then
-            if placePin(pin) then BoardMirror.syncAll() end
+            placePin(pin)
+            if entry.board then BoardMirror.syncAll() end
         end
     end, PIN_WATCH, -1)
 end
