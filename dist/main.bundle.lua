@@ -258,22 +258,22 @@ __bundle_register("src.core.board_mirror", function(require, _LOADED, __bundle_r
 --
 -- Pins. Give any object the script in src/modules/mirror_pin.lua and drop it on a
 -- board: that object is now a master pin and the board a master. Right-click
--- the master pin and "Spawn slave" or "Spawn shadow slave" (a script-free copy
--- of the master), drop the slave on another board: tokens on the master board
--- now get a ghost on that board. A master can have any number of slaves,
--- each with its own color, and a board can carry any number of pins. The board
+-- the master pin and "Spawn slave" (a script-free copy of the master), drop the
+-- slave on another board: tokens on the master board now get a shadow on that
+-- board. A master can have any number of slaves, and a board can carry any
+-- number of pins. The board
 -- a pin belongs to is whatever it was dropped on (a ray cast straight down), so
 -- moving a pin to another board re-links it.
 --
--- Ghosts. "3D" is a copy of the token with its script, UI and tags removed;
--- "shadow" is a flat disc in the link's color. Both carry the token's name, are
--- locked, not interactable and have their colliders turned off, so nothing can
--- grab or bump them. A ghost exists while its token is over the master board and
--- goes away when the token leaves it.
+-- Shadows. A flat disc the size of the token's footprint, in the token's color:
+-- blue for player tokens, the token's own tint (enemy, ally, neutral) for the
+-- rest. It carries the token's name, is locked, not interactable and has its
+-- colliders turned off, so nothing can grab or bump it. A shadow exists while
+-- its token is over the master board and goes away when the token leaves it.
 --
 -- Mapping. A position is taken into the master board's local space and back out
 -- of the slave board's, so the two boards can sit anywhere, at any rotation and
--- scale. Height is not mapped: the ghost stands on the slave board's surface,
+-- scale. Height is not mapped: the shadow lies on the slave board's surface,
 -- raised by however far the token was resting above the master board's surface
 -- (stairs, platforms inside a diorama).
 --
@@ -292,25 +292,16 @@ local TICK = 0.05
 local SHADOW_THICKNESS = 0.05
 local LABEL_HEIGHT = 0.15
 
-local PALETTE = {
-    { name = "Red",    color = Color(0.86, 0.20, 0.18) },
-    { name = "Blue",   color = Color(0.12, 0.47, 0.90) },
-    { name = "Green",  color = Color(0.20, 0.72, 0.28) },
-    { name = "Yellow", color = Color(0.95, 0.80, 0.15) },
-    { name = "Purple", color = Color(0.58, 0.30, 0.86) },
-    { name = "Orange", color = Color(0.96, 0.52, 0.12) },
-    { name = "Teal",   color = Color(0.10, 0.70, 0.70) },
-    { name = "Pink",   color = Color(0.94, 0.42, 0.70) },
-}
+local PLAYER_COLOR = CONFIG.palette.blue.rgb
 
 -- Saved state:
 --   masters[pinGuid] = { board = boardGuid }
---   slaves[pinGuid]  = { master = pinGuid, board = boardGuid, mode = "3d"|"shadow", color = paletteIndex }
+--   slaves[pinGuid]  = { master = pinGuid, board = boardGuid }
 --   hidden[boardGuid] = true when that board's pins are hidden
 local state = nil
 
 -- Runtime only:
---   ghosts[tokenGuid][slavePinGuid] = { obj = Object|nil, mode = string, name = string }
+--   ghosts[tokenGuid][slavePinGuid] = { obj = Object|nil, name = string, color = hex string }
 --   timers[tokenGuid] = Wait id of the follow loop
 --   rest_offset[tokenGuid] = how far the token last rested above its master board
 local ghosts = {}
@@ -424,8 +415,12 @@ local function disableColliders(obj)
     end)
 end
 
-local function paletteColor(index)
-    return PALETTE[((index - 1) % #PALETTE) + 1]
+local function tokenColor(token)
+    if token.hasTag(OBJECT_TAGS.player) then
+        return Color(PLAYER_COLOR.r, PLAYER_COLOR.g, PLAYER_COLOR.b)
+    end
+    local c = token.getColorTint()
+    return Color(c.r, c.g, c.b)
 end
 
 local function tokenName(token)
@@ -500,12 +495,14 @@ local function placeGhost(g, token, masterBoard, slaveBoard)
 
     local rot = token.getRotation()
     local yaw = rot.y - masterBoard.getRotation().y + slaveBoard.getRotation().y
-    if g.mode == "shadow" then
-        obj.setRotation(Vector(0, yaw, 0))
-    else
-        obj.setRotation(Vector(rot.x, yaw, rot.z))
-    end
+    obj.setRotation(Vector(0, yaw, 0))
     obj.setPosition(world)
+
+    local color = tokenColor(token)
+    if g.color ~= color:toHex() then
+        g.color = color:toHex()
+        obj.setColorTint(color)
+    end
 
     local name = tokenName(token)
     if name ~= g.name then
@@ -515,79 +512,43 @@ local function placeGhost(g, token, masterBoard, slaveBoard)
 end
 
 local function spawnGhost(token, slaveGuid, masterBoard, slaveBoard)
-    local link = state.slaves[slaveGuid]
     local tokenGuid = token.getGUID()
     local factor = scaleFactor(masterBoard, slaveBoard)
-    local g = { obj = nil, mode = link.mode, name = nil, bottom = 0 }
+    local g = { obj = nil, name = nil, color = nil, bottom = 0 }
     ghosts[tokenGuid] = ghosts[tokenGuid] or {}
     ghosts[tokenGuid][slaveGuid] = g
 
-    local function ready(obj)
-        -- The link, the token or this ghost entry may be gone by now.
-        if ghosts[tokenGuid] == nil or ghosts[tokenGuid][slaveGuid] ~= g or token.isDestroyed() then
-            obj.destruct()
-            return
-        end
-        obj.setLock(true)
-        obj.interactable = false
-        obj.use_gravity = false
-        disableColliders(obj)
-        if link.mode == "shadow" then
+    spawnObject({
+        type = "Checker_white",
+        position = slaveBoard.positionToWorld(masterBoard.positionToLocal(token.getPosition())),
+        sound = false,
+        callback_function = function(obj)
+            -- The link, the token or this ghost entry may be gone by now.
+            if ghosts[tokenGuid] == nil or ghosts[tokenGuid][slaveGuid] ~= g or token.isDestroyed() then
+                obj.destruct()
+                return
+            end
+            obj.addTag(OBJECT_TAGS.board_mirror_ghost)
+            obj.setName(tokenName(token))
+            obj.setLock(true)
+            obj.interactable = false
+            obj.use_gravity = false
+            disableColliders(obj)
+
             -- Size the disc to the token's footprint.
             local tb = token.getBoundsNormalized()
             local want = math.max(tb.size.x, tb.size.z) * factor
-            local have = obj.getBoundsNormalized().size.x
-            if have > 0 then
-                local s = want / have
-                obj.setScale(Vector(s, SHADOW_THICKNESS / math.max(obj.getBoundsNormalized().size.y, 0.001), s))
+            local have = obj.getBoundsNormalized()
+            if have.size.x > 0 then
+                local s = want / have.size.x
+                obj.setScale(Vector(s, SHADOW_THICKNESS / math.max(have.size.y, 0.001), s))
             end
-            obj.setColorTint(paletteColor(link.color).color)
-        end
-        g.obj = obj
-        g.bottom = bottomOffset(obj)
-        BoardMirror.sync(token)
-    end
 
-    local spawnPos = slaveBoard.positionToWorld(masterBoard.positionToLocal(token.getPosition()))
-    if link.mode == "shadow" then
-        spawnObject({
-            type = "Checker_white",
-            position = spawnPos,
-            sound = false,
-            callback_function = function(obj)
-                obj.addTag(OBJECT_TAGS.board_mirror_ghost)
-                obj.setName(tokenName(token))
-                ready(obj)
-            end,
-        })
-    else
-        local data = token.getData()
-        local function clean(d)
-            d.GUID = nil
-            d.LuaScript = ""
-            d.LuaScriptState = ""
-            d.XmlUI = ""
-            d.Tags = { OBJECT_TAGS.board_mirror_ghost }
-            d.Locked = true
-            d.States = nil
-            d.ContextMenu = nil
-            if d.ChildObjects then
-                for _, child in ipairs(d.ChildObjects) do clean(child) end
-            end
-        end
-        clean(data)
-        local s = data.Transform
-        if s then
-            s.scaleX = s.scaleX * factor
-            s.scaleY = s.scaleY * factor
-            s.scaleZ = s.scaleZ * factor
-        end
-        spawnObjectData({
-            data = data,
-            position = spawnPos,
-            callback_function = ready,
-        })
-    end
+            g.obj = obj
+            g.bottom = bottomOffset(obj)
+            BoardMirror.sync(token)
+        end,
+    })
 end
 
 -- Brings a token's ghosts up to date: creates the missing ones, moves them,
@@ -612,10 +573,6 @@ function BoardMirror.sync(token)
                 if slaveBoard then
                     wanted[slaveGuid] = true
                     local g = ghosts[tokenGuid] and ghosts[tokenGuid][slaveGuid]
-                    if g and g.mode ~= link.mode then
-                        destroyGhost(tokenGuid, slaveGuid)
-                        g = nil
-                    end
                     if g == nil then
                         spawnGhost(token, slaveGuid, masterBoard, slaveBoard)
                     else
@@ -670,18 +627,10 @@ end
 local addPinMenu
 local addBoardMenu
 
-local function slaveLabel(link)
-    local mode = link.mode == "shadow" and "shadow" or "3D"
-    return "Mirror slave (" .. mode .. ", " .. paletteColor(link.color).name .. ")"
-end
-
--- Masters keep their own look; only slaves are named and colored.
+-- Masters keep their own look; only slaves are renamed.
 local function stylePin(pin)
-    local guid = pin.getGUID()
-    if state.slaves[guid] then
-        local link = state.slaves[guid]
-        pin.setName(slaveLabel(link))
-        pin.setColorTint(paletteColor(link.color).color)
+    if state.slaves[pin.getGUID()] then
+        pin.setName("Mirror slave")
     end
 end
 
@@ -709,20 +658,9 @@ local function placePin(pin)
     save()
 end
 
-local function nextColor(masterGuid)
-    local used = {}
-    for _, link in pairs(state.slaves) do
-        if link.master == masterGuid then used[link.color] = true end
-    end
-    for i = 1, #PALETTE do
-        if not used[i] then return i end
-    end
-    return 1
-end
-
 -- A slave is a copy of its master without the script, so it cannot register
 -- itself as a master too.
-local function spawnSlave(masterPin, mode)
+local function spawnSlave(masterPin)
     local masterGuid = masterPin.getGUID()
     local data = masterPin.getData()
     data.GUID = nil
@@ -737,12 +675,7 @@ local function spawnSlave(masterPin, mode)
         data = data,
         position = masterPin.getPosition() + Vector(1.5, 1, 0),
         callback_function = function(pin)
-            state.slaves[pin.getGUID()] = {
-                master = masterGuid,
-                board = nil,
-                mode = mode,
-                color = nextColor(masterGuid),
-            }
+            state.slaves[pin.getGUID()] = { master = masterGuid, board = nil }
             stylePin(pin)
             addPinMenu(pin)
             save()
@@ -771,32 +704,13 @@ addPinMenu = function(pin)
     pin.clearContextMenu()
     local guid = pin.getGUID()
     if state.masters[guid] then
-        pin.addContextMenuItem("Spawn slave", function() spawnSlave(pin, "3d") end)
-        pin.addContextMenuItem("Spawn shadow slave", function() spawnSlave(pin, "shadow") end)
+        pin.addContextMenuItem("Spawn slave", function() spawnSlave(pin) end)
         pin.addContextMenuItem("Remove all slaves", function()
             for slaveGuid, link in pairs(state.slaves) do
                 if link.master == guid then removeSlave(slaveGuid) end
             end
         end)
     elseif state.slaves[guid] then
-        pin.addContextMenuItem("Toggle 3D / shadow", function()
-            local link = state.slaves[guid]
-            if not link then return end
-            link.mode = link.mode == "shadow" and "3d" or "shadow"
-            destroyGhostsOfSlave(guid)
-            stylePin(pin)
-            save()
-            BoardMirror.syncAll()
-        end)
-        pin.addContextMenuItem("Next color", function()
-            local link = state.slaves[guid]
-            if not link then return end
-            link.color = (link.color % #PALETTE) + 1
-            destroyGhostsOfSlave(guid)
-            stylePin(pin)
-            save()
-            BoardMirror.syncAll()
-        end)
         pin.addContextMenuItem("Unlink", function() removeSlave(guid) end)
     end
 end
