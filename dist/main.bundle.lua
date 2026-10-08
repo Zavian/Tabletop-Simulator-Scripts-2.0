@@ -54,6 +54,7 @@ local updater = require("src.core.updater")
 local promise = require("src.core.promise")
 local movement_measurement = require("src.core.movement_measurement")
 local flying = require("src.core.flying")
+local board_mirror = require("src.core.board_mirror")
 
 -- Load UI Manager
 
@@ -71,6 +72,21 @@ function onLoad(saved_data)
     promise.WaitFrames(35, function()
 
         initializeTableComponents()
+        board_mirror.init()
+
+
+        -- Scan and initialize any existing flying tokens
+        local all_objs = getAllObjects()
+        for _, obj in ipairs(all_objs) do
+            if obj.hasTag(OBJECT_TAGS.flying) then
+                if obj.getVar("flyOffset") == nil then
+                    flying.create(obj)
+                end
+            end
+        end
+
+        -- DEBUG AREA
+        -- This stuff never gets called unless i'm in my dev environment, so it's safe to leave it here for testing purposes
         local table = Tables.getTable()
 
         print("Table loading complete")
@@ -85,15 +101,14 @@ function onLoad(saved_data)
         local newNote = utils.getObjectByTag(OBJECT_TAGS.clever_notecard)
         utils.swapObjectInBagByTag(COMPONENTS.npc_commander, OBJECT_TAGS.clever_notecard, newNote)
 
-        -- Scan and initialize any existing flying tokens
-        local all_objs = getAllObjects()
-        for _, obj in ipairs(all_objs) do
-            if obj.hasTag(OBJECT_TAGS.flying) then
-                if obj.getVar("flyOffset") == nil then
-                    flying.create(obj)
-                end
-            end
-        end
+        local fogController = getObjectFromGUID('ad04fe')
+        local fogBag = getObjectFromGUID('5b06db')
+        fogBag.reset()
+        fogController.clone({
+            position = fogBag.getPosition() + Vector(0, 2, 0),
+            rotation = fogBag.getRotation(),
+            sound = false
+        })
     end)
 
     if saved_data then SAVED_DATA = JSON.decode(saved_data) end
@@ -144,6 +159,8 @@ function onObjectPickUp(player_color, pick_obj)
         end
         flying.onPickUp(pick_obj, player_color)
     end
+
+    board_mirror.onPickUp(pick_obj)
 end
 
 function onObjectDrop(player_color, drop_obj)
@@ -157,6 +174,12 @@ function onObjectDrop(player_color, drop_obj)
     if drop_obj.hasTag(OBJECT_TAGS.flying) then
         flying.onDrop(drop_obj)
     end
+
+    board_mirror.onDrop(drop_obj)
+end
+
+function onObjectDestroy(obj)
+    board_mirror.onDestroy(obj)
 end
 
 function resetFlyButton(obj, color)
@@ -221,423 +244,679 @@ function onSave()
     return self.script_state
 end
 end)
-__bundle_register("src.core.flying", function(require, _LOADED, __bundle_register, __bundle_modules)
+__bundle_register("src.core.board_mirror", function(require, _LOADED, __bundle_register, __bundle_modules)
+-- Board Mirror
+--
+-- Mirrors tokens tagged movement_measurement from one board onto others, as
+-- ghosts that follow the token while it is carried. Neither the boards nor the
+-- tokens get any script: everything lives here, in Global.
+--
+-- Pins. Right-click the table and "Spawn mirror master pin", drop it on a board:
+-- that board is now a master. Right-click the master pin and "Spawn slave" or
+-- "Spawn shadow slave", drop the slave on another board: tokens on the master
+-- board now get a ghost on that board. A master can have any number of slaves,
+-- each with its own color, and a board can carry any number of pins. The board
+-- a pin belongs to is whatever it was dropped on (a ray cast straight down), so
+-- moving a pin to another board re-links it.
+--
+-- Ghosts. "3D" is a copy of the token with its script, UI and tags removed;
+-- "shadow" is a flat disc in the link's color. Both carry the token's name, are
+-- locked, not interactable and have their colliders turned off, so nothing can
+-- grab or bump them. A ghost exists while its token is over the master board and
+-- goes away when the token leaves it.
+--
+-- Mapping. A position is taken into the master board's local space and back out
+-- of the slave board's, so the two boards can sit anywhere, at any rotation and
+-- scale. Height is not mapped: the ghost stands on the slave board's surface,
+-- raised by however far the token was resting above the master board's surface
+-- (stairs, platforms inside a diorama).
+--
+-- Links are kept in SAVED_DATA.BOARD_MIRROR, keyed by pin GUID. Ghosts are not
+-- saved: on load the old ones are deleted and rebuilt.
+
 local utils = require("src.core.utils")
 require("src.data.config")
 
-local Flying = {}
+local BoardMirror = {}
 
-local OFFSET_VALUE = Grid.sizeX or 2
+-- Click target for the ghosts' name labels, which are buttons owned by Global.
+function boardMirror_noop() end
 
-local RANGE_COLORS = {
-    melee     = {0, 0.4550, 0.8510, 1},
-    veryClose = {0, 0.659, 0.976, 1},
-    close     = {0.204, 0.91, 0, 1},
-    far       = {0.918, 0.416, 0, 1},
-    veryFar   = {0.91, 0.169, 0.169, 1}
+local TICK = 0.05
+local SHADOW_THICKNESS = 0.05
+local LABEL_HEIGHT = 0.15
+
+local PALETTE = {
+    { name = "Red",    color = Color(0.86, 0.20, 0.18) },
+    { name = "Blue",   color = Color(0.12, 0.47, 0.90) },
+    { name = "Green",  color = Color(0.20, 0.72, 0.28) },
+    { name = "Yellow", color = Color(0.95, 0.80, 0.15) },
+    { name = "Purple", color = Color(0.58, 0.30, 0.86) },
+    { name = "Orange", color = Color(0.96, 0.52, 0.12) },
+    { name = "Teal",   color = Color(0.10, 0.70, 0.70) },
+    { name = "Pink",   color = Color(0.94, 0.42, 0.70) },
 }
+local MASTER_COLOR = Color(0.95, 0.95, 0.95)
 
-local RANGE_LABELS = {
-    melee     = "Melee",
-    veryClose = "Very\nClose",
-    close     = "Close",
-    far       = "Far",
-    veryFar   = "Very\nFar"
-}
+-- Saved state:
+--   masters[pinGuid] = { board = boardGuid }
+--   slaves[pinGuid]  = { master = pinGuid, board = boardGuid, mode = "3d"|"shadow", color = paletteIndex }
+--   hidden[boardGuid] = true when that board's pins are hidden
+local state = nil
 
-function Flying.create(target)
-    target.addTag(OBJECT_TAGS.flying)
-    
-    -- Add context menus
-    target.addContextMenuItem("Fly Up", function(player_color)
-        Flying.flyUp(target, player_color)
-    end, true)
-    target.addContextMenuItem("Fly Down", function(player_color)
-        Flying.flyDown(target, player_color)
-    end, true)
+-- Runtime only:
+--   ghosts[tokenGuid][slavePinGuid] = { obj = Object|nil, mode = string, name = string }
+--   timers[tokenGuid] = Wait id of the follow loop
+--   rest_offset[tokenGuid] = how far the token last rested above its master board
+local ghosts = {}
+local timers = {}
+local rest_offset = {}
+local board_menus = {}
 
-    -- Create fly height button if it doesn't exist
-    if not Flying.getFlyButtonIndex(target) then
-        local bounds = target.getBounds()
-        local z_pos = bounds.size.z * 0.45
-        if z_pos < 0.35 then z_pos = 0.35 end
-        if z_pos > 1.3 then z_pos = 1.3 end
-        
-        target.createButton({
-            click_function = "resetFlyButton",
-            function_owner = self,
-            label = "",
-            position = {x = 1.3, y = 0.05, z = z_pos},
-            rotation = {0, 0, 0},
-            width = 600,
-            height = 475,
-            font_size = 300,
-            color = {0, 0.4550, 0.8510, 0},
-            font_color = {1, 1, 1, 0},
-            tooltip = "Height",
-            scale = {0.3, 0.3, 0.3}
-        })
-    end
+------------------------------------------------------------------------------
+-- Helpers
+------------------------------------------------------------------------------
 
-    target.setVar("flyOffset", 0)
-    target.setVar("isFloating", false)
-    target.setVar("groundIndicator", nil)
+local function isPin(obj)
+    return obj.hasTag(OBJECT_TAGS.board_mirror_master) or obj.hasTag(OBJECT_TAGS.board_mirror_slave)
 end
 
-function Flying.getFlyButtonIndex(target)
-    local buttons = target.getButtons()
-    if not buttons then return nil end
-    for _, btn in ipairs(buttons) do
-        if btn.click_function == "resetFlyButton" then
-            return btn.index
+local function isGhost(obj)
+    return obj.hasTag(OBJECT_TAGS.board_mirror_ghost)
+end
+
+local function isTracked(obj)
+    return obj.hasTag(OBJECT_TAGS.movement_measurement) and not isGhost(obj)
+end
+
+local function save()
+    SAVED_DATA.BOARD_MIRROR = state
+end
+
+local function castDown(origin)
+    local hits = Physics.cast({
+        origin = origin,
+        direction = { 0, -1, 0 },
+        type = 1,
+        max_distance = 200,
+    }) or {}
+    table.sort(hits, function(a, b) return a.distance < b.distance end)
+    return hits
+end
+
+-- Every board that has at least one pin on it.
+local function knownBoards()
+    local boards = {}
+    for _, m in pairs(state.masters) do
+        if m.board then boards[m.board] = true end
+    end
+    for _, s in pairs(state.slaves) do
+        if s.board then boards[s.board] = true end
+    end
+    return boards
+end
+
+-- The board a pin sits on: the first locked object under it that is not a
+-- pin, a ghost, a tracked token or the table itself.
+local function boardUnderPin(pin)
+    local tableObj = Tables.getTableObject()
+    for _, hit in ipairs(castDown(pin.getPosition() + Vector(0, 0.5, 0))) do
+        local o = hit.hit_object
+        if o and o ~= pin and o ~= tableObj and not isPin(o) and not isGhost(o)
+            and not isTracked(o) and o.getLock() then
+            return o
         end
     end
     return nil
 end
 
-function Flying.flyUp(target, player_color)
-    if not target.hasTag(OBJECT_TAGS.player) and player_color ~= "Black" then return end
-    local currentOffset = target.getVar("flyOffset") or 0
-    
-    if currentOffset == 0 then
-        local pos = target.getPosition()
-        target.setPosition({pos.x, pos.y + 0.5, pos.z})
+-- The closest master board under a token, and the point where the ray met it.
+local function masterBoardUnder(token)
+    local masters = {}
+    for _, m in pairs(state.masters) do
+        if m.board then masters[m.board] = true end
     end
-
-    local nextOffset = currentOffset + OFFSET_VALUE
-    target.setVar("flyOffset", nextOffset)
-    Flying.setFloat(target, nextOffset)
+    for _, hit in ipairs(castDown(token.getPosition() + Vector(0, 0.5, 0))) do
+        local o = hit.hit_object
+        if o and o ~= token and masters[o.getGUID()] then
+            return o, hit.point
+        end
+    end
+    return nil, nil
 end
 
-function Flying.flyDown(target, player_color)
-    if not target.hasTag(OBJECT_TAGS.player) and player_color ~= "Black" then return end
-    local currentOffset = target.getVar("flyOffset") or 0
-    if currentOffset > 0 then
-        local nextOffset = currentOffset - OFFSET_VALUE
-        target.setVar("flyOffset", nextOffset)
-        Flying.setFloat(target, nextOffset)
+-- Where a ray straight down at (x, z) meets a given board.
+local function surfaceOf(board, x, z)
+    local b = board.getBounds()
+    local top = b.center.y + b.size.y / 2 + 1
+    for _, hit in ipairs(castDown(Vector(x, top, z))) do
+        if hit.hit_object == board then
+            return hit.point.y
+        end
+    end
+    return nil
+end
+
+local function bottomOffset(obj)
+    -- Distance from the object's pivot down to its lowest point.
+    local b = obj.getBounds()
+    return obj.getPosition().y - (b.center.y - b.size.y / 2)
+end
+
+local function disableColliders(obj)
+    pcall(function()
+        local function walk(go)
+            for _, c in ipairs(go.getComponents() or {}) do
+                if string.find(c.name, "Collider") then
+                    pcall(function() c.set("enabled", false) end)
+                end
+            end
+            for _, child in ipairs(go.getChildren() or {}) do
+                walk(child)
+            end
+        end
+        walk(obj)
+    end)
+end
+
+local function paletteColor(index)
+    return PALETTE[((index - 1) % #PALETTE) + 1]
+end
+
+local function tokenName(token)
+    local name = token.getName()
+    if name == nil or name == "" then return "" end
+    return name
+end
+
+------------------------------------------------------------------------------
+-- Ghosts
+------------------------------------------------------------------------------
+
+local function setLabel(ghost, name)
+    ghost.clearButtons()
+    if name == "" then return end
+    local scale = ghost.getScale()
+    local b = ghost.getBoundsNormalized()
+    local top = (b.center.y - ghost.getPosition().y + b.size.y / 2) / scale.y
+    ghost.createButton({
+        click_function = "boardMirror_noop",
+        function_owner = Global,
+        label = name,
+        position = { 0, top + LABEL_HEIGHT / scale.y, 0 },
+        rotation = { 0, 180, 0 },
+        scale = { 0.5 / scale.x, 1 / scale.y, 0.5 / scale.z },
+        width = 0,
+        height = 0,
+        font_size = 300,
+        font_color = { 1, 1, 1 },
+    })
+end
+
+local function destroyGhost(tokenGuid, slaveGuid)
+    local byToken = ghosts[tokenGuid]
+    if not byToken or not byToken[slaveGuid] then return end
+    local g = byToken[slaveGuid]
+    byToken[slaveGuid] = nil
+    if g.obj and not g.obj.isDestroyed() then
+        g.obj.destruct()
     end
 end
 
-function Flying.resetFlyButton(target, player_color)
-    if not target.hasTag(OBJECT_TAGS.player) and player_color ~= "Black" then return end
-    target.setVar("flyOffset", 0)
-    Flying.setFloat(target, 0)
+local function destroyGhostsOfToken(tokenGuid)
+    if not ghosts[tokenGuid] then return end
+    for slaveGuid in pairs(ghosts[tokenGuid]) do
+        destroyGhost(tokenGuid, slaveGuid)
+    end
+    ghosts[tokenGuid] = nil
 end
 
-function Flying.setFloat(target, offset)
-    if offset == 0 then
-        target.setVar("isFloating", false)
-        target.use_gravity = true
-        Flying.destroyGroundIndicator(target)
+local function destroyGhostsOfSlave(slaveGuid)
+    for tokenGuid in pairs(ghosts) do
+        destroyGhost(tokenGuid, slaveGuid)
+    end
+end
+
+local function scaleFactor(masterBoard, slaveBoard)
+    return slaveBoard.getScale().x / masterBoard.getScale().x
+end
+
+-- Moves an existing ghost to mirror the token.
+local function placeGhost(g, token, masterBoard, slaveBoard)
+    local obj = g.obj
+    if not obj or obj.isDestroyed() then return end
+
+    local pos = token.getPosition()
+    local world = slaveBoard.positionToWorld(masterBoard.positionToLocal(pos))
+    local factor = scaleFactor(masterBoard, slaveBoard)
+    local floor = surfaceOf(slaveBoard, world.x, world.z) or world.y
+    local raise = (rest_offset[token.getGUID()] or 0) * factor
+    world.y = floor + raise + g.bottom + 0.01
+
+    local rot = token.getRotation()
+    local yaw = rot.y - masterBoard.getRotation().y + slaveBoard.getRotation().y
+    if g.mode == "shadow" then
+        obj.setRotation(Vector(0, yaw, 0))
     else
-        target.setVar("isFloating", true)
-        target.use_gravity = false
-        Flying.spawnGroundIndicator(target, offset)
+        obj.setRotation(Vector(rot.x, yaw, rot.z))
     end
-    Flying.updateHeightButton(target, offset)
-end
+    obj.setPosition(world)
 
-function Flying.getRangeBand(squares)
-    if squares <= 1.5 then return "melee"
-    elseif squares <= 3 then return "veryClose"
-    elseif squares <= 6 then return "close"
-    elseif squares <= 12 then return "far"
-    else return "veryFar"
+    local name = tokenName(token)
+    if name ~= g.name then
+        g.name = name
+        setLabel(obj, name)
     end
 end
 
-function Flying.updateHeightButton(target, offset)
-    local btnIndex = Flying.getFlyButtonIndex(target)
-    if not btnIndex then return end
+local function spawnGhost(token, slaveGuid, masterBoard, slaveBoard)
+    local link = state.slaves[slaveGuid]
+    local tokenGuid = token.getGUID()
+    local factor = scaleFactor(masterBoard, slaveBoard)
+    local g = { obj = nil, mode = link.mode, name = nil, bottom = 0 }
+    ghosts[tokenGuid] = ghosts[tokenGuid] or {}
+    ghosts[tokenGuid][slaveGuid] = g
 
-    if offset == 0 then
-        target.editButton({
-            index = btnIndex,
-            font_color = {1, 1, 1, 0},
-            color = {0, 0.4550, 0.8510, 0}
+    local function ready(obj)
+        -- The link, the token or this ghost entry may be gone by now.
+        if ghosts[tokenGuid] == nil or ghosts[tokenGuid][slaveGuid] ~= g or token.isDestroyed() then
+            obj.destruct()
+            return
+        end
+        obj.setLock(true)
+        obj.interactable = false
+        obj.use_gravity = false
+        disableColliders(obj)
+        if link.mode == "shadow" then
+            -- Size the disc to the token's footprint.
+            local tb = token.getBoundsNormalized()
+            local want = math.max(tb.size.x, tb.size.z) * factor
+            local have = obj.getBoundsNormalized().size.x
+            if have > 0 then
+                local s = want / have
+                obj.setScale(Vector(s, SHADOW_THICKNESS / math.max(obj.getBoundsNormalized().size.y, 0.001), s))
+            end
+            obj.setColorTint(paletteColor(link.color).color)
+        end
+        g.obj = obj
+        g.bottom = bottomOffset(obj)
+        BoardMirror.sync(token)
+    end
+
+    local spawnPos = slaveBoard.positionToWorld(masterBoard.positionToLocal(token.getPosition()))
+    if link.mode == "shadow" then
+        spawnObject({
+            type = "Checker_white",
+            position = spawnPos,
+            sound = false,
+            callback_function = function(obj)
+                obj.addTag(OBJECT_TAGS.board_mirror_ghost)
+                obj.setName(tokenName(token))
+                ready(obj)
+            end,
         })
     else
-        local squares = offset / OFFSET_VALUE
-        local band = Flying.getRangeBand(squares)
-        target.editButton({
-            index = btnIndex,
-            font_color = {1, 1, 1, 1},
-            color = RANGE_COLORS[band],
-            label = "+" .. math.floor(squares * 5)
+        local data = token.getData()
+        local function clean(d)
+            d.GUID = nil
+            d.LuaScript = ""
+            d.LuaScriptState = ""
+            d.XmlUI = ""
+            d.Tags = { OBJECT_TAGS.board_mirror_ghost }
+            d.Locked = true
+            d.States = nil
+            d.ContextMenu = nil
+            if d.ChildObjects then
+                for _, child in ipairs(d.ChildObjects) do clean(child) end
+            end
+        end
+        clean(data)
+        local s = data.Transform
+        if s then
+            s.scaleX = s.scaleX * factor
+            s.scaleY = s.scaleY * factor
+            s.scaleZ = s.scaleZ * factor
+        end
+        spawnObjectData({
+            data = data,
+            position = spawnPos,
+            callback_function = ready,
         })
     end
 end
 
-function Flying.spawnGroundIndicator(target, offset)
-    local guid = target.getGUID()
-    local indicator = target.getVar("groundIndicator")
-    if indicator then
-        indicator.setVar("flyOffset", offset)
-        indicator.call("updateLabel")
-        return
+-- Brings a token's ghosts up to date: creates the missing ones, moves them,
+-- and removes the ones for boards it is no longer over.
+function BoardMirror.sync(token)
+    if state == nil or token == nil or token.isDestroyed() then return end
+    local tokenGuid = token.getGUID()
+    local masterBoard, hitPoint = masterBoardUnder(token)
+
+    if masterBoard and hitPoint and token.held_by_color == nil and token.resting then
+        local b = token.getBounds()
+        rest_offset[tokenGuid] = math.max(0, (b.center.y - b.size.y / 2) - hitPoint.y)
     end
 
-    local bounds = target.getBounds()
-    local size = math.max(bounds.size.x, bounds.size.z) * 0.45
-    local pos = target.getPosition()
-    local groundY = Flying.getGroundHeight(target)
-
-    local isVisible = true
-    if target.getVar("is_visible") then
-        local success, res = pcall(function() return target.call("is_visible") end)
-        if success and res ~= nil then
-            isVisible = res
+    local wanted = {}
+    if masterBoard then
+        local masterBoardGuid = masterBoard.getGUID()
+        for slaveGuid, link in pairs(state.slaves) do
+            local master = state.masters[link.master]
+            if master and master.board == masterBoardGuid and link.board and link.board ~= masterBoardGuid then
+                local slaveBoard = getObjectFromGUID(link.board)
+                if slaveBoard then
+                    wanted[slaveGuid] = true
+                    local g = ghosts[tokenGuid] and ghosts[tokenGuid][slaveGuid]
+                    if g and g.mode ~= link.mode then
+                        destroyGhost(tokenGuid, slaveGuid)
+                        g = nil
+                    end
+                    if g == nil then
+                        spawnGhost(token, slaveGuid, masterBoard, slaveBoard)
+                    else
+                        placeGhost(g, token, masterBoard, slaveBoard)
+                    end
+                end
+            end
         end
     end
 
-    local invisible_players = {}
-    if not isVisible then
-        invisible_players = utils.hideFromPlayersArray()
+    if ghosts[tokenGuid] then
+        for slaveGuid in pairs(ghosts[tokenGuid]) do
+            if not wanted[slaveGuid] then destroyGhost(tokenGuid, slaveGuid) end
+        end
     end
+end
 
+function BoardMirror.syncAll()
+    for _, obj in ipairs(getObjectsWithTag(OBJECT_TAGS.movement_measurement)) do
+        if not isGhost(obj) then BoardMirror.sync(obj) end
+    end
+end
+
+local function stopFollowing(tokenGuid)
+    if timers[tokenGuid] then
+        Wait.stop(timers[tokenGuid])
+        timers[tokenGuid] = nil
+    end
+end
+
+-- Follows a token every TICK while it is held or still settling.
+local function follow(token)
+    local tokenGuid = token.getGUID()
+    if timers[tokenGuid] then return end
+    timers[tokenGuid] = Wait.time(function()
+        if token.isDestroyed() then
+            stopFollowing(tokenGuid)
+            destroyGhostsOfToken(tokenGuid)
+            return
+        end
+        BoardMirror.sync(token)
+        if token.held_by_color == nil and token.resting then
+            stopFollowing(tokenGuid)
+        end
+    end, TICK, -1)
+end
+
+------------------------------------------------------------------------------
+-- Pins and menus
+------------------------------------------------------------------------------
+
+local addPinMenu
+local addBoardMenu
+
+local function slaveLabel(link)
+    local mode = link.mode == "shadow" and "shadow" or "3D"
+    return "Mirror slave (" .. mode .. ", " .. paletteColor(link.color).name .. ")"
+end
+
+local function stylePin(pin)
+    local guid = pin.getGUID()
+    if state.masters[guid] then
+        pin.setName("Mirror master")
+        pin.setColorTint(MASTER_COLOR)
+    elseif state.slaves[guid] then
+        local link = state.slaves[guid]
+        pin.setName(slaveLabel(link))
+        pin.setColorTint(paletteColor(link.color).color)
+    end
+end
+
+local function applyHidden(pin, hidden)
+    if hidden then
+        pin.setLock(true)
+        pin.interactable = false
+        pin.setInvisibleTo(utils.allPlayersArray())
+    else
+        pin.interactable = true
+        pin.setInvisibleTo({})
+    end
+end
+
+local function placePin(pin)
+    local board = boardUnderPin(pin)
+    local guid = pin.getGUID()
+    local entry = state.masters[guid] or state.slaves[guid]
+    if not entry then return end
+    entry.board = board and board.getGUID() or nil
+    if board then
+        addBoardMenu(board)
+        if state.hidden[entry.board] then applyHidden(pin, true) end
+    end
+    save()
+end
+
+local function nextColor(masterGuid)
+    local used = {}
+    for _, link in pairs(state.slaves) do
+        if link.master == masterGuid then used[link.color] = true end
+    end
+    for i = 1, #PALETTE do
+        if not used[i] then return i end
+    end
+    return 1
+end
+
+local function spawnSlave(masterPin, mode)
+    local masterGuid = masterPin.getGUID()
     spawnObject({
-        type = "reversi_chip",
-        position = {pos.x, groundY + 0.02, pos.z},
-        rotation = {0, 0, 0},
-        scale = {size, 0.02, size},
+        type = "PlayerPawn",
+        position = masterPin.getPosition() + Vector(1.5, 1, 0),
         sound = false,
-        callback_function = function(obj)
-            target.setVar("groundIndicator", obj)
-            obj.setColorTint({0, 0, 0})
-            obj.setName("Height Base")
-            obj.sticky = false
-            obj.setInvisibleTo(invisible_players)
-
-            local originalTags = target.getTags()
-            if originalTags then
-                local filteredTags = {}
-                for _, tag in ipairs(originalTags) do
-                    if tag ~= OBJECT_TAGS.flying and tag ~= OBJECT_TAGS.movement_measurement then
-                        table.insert(filteredTags, tag)
-                    end
-                end
-                obj.setTags(filteredTags)
-            end
-
-            obj.addContextMenuItem("Fly Up", function(player_color)
-                Flying.flyUp(target, player_color)
-            end, true)
-            obj.addContextMenuItem("Fly Down", function(player_color)
-                Flying.flyDown(target, player_color)
-            end, true)
-            obj.addContextMenuItem("Reset Height", function(player_color)
-                Flying.resetFlyButton(target, player_color)
-            end, true)
-
-            local rot = target.getRotation()
-            obj.setRotation({0, rot.y, 0})
-
-            local luaScript = [[
-local targetGuid = "]] .. guid .. [["
-local flyOffset = ]] .. offset .. [[
-local ready = true
-
-local RANGE_COLORS = {
-    melee     = {0, 0.4550, 0.8510, 1},
-    veryClose = {0, 0.659, 0.976, 1},
-    close     = {0.204, 0.91, 0, 1},
-    far       = {0.918, 0.416, 0, 1},
-    veryFar   = {0.91, 0.169, 0.169, 1}
-}
-local RANGE_LABELS = {
-    melee     = "Melee",
-    veryClose = "Very\nClose",
-    close     = "Close",
-    far       = "Far",
-    veryFar   = "Very\nFar"
-}
-
-function colorToHex(c)
-    local function toHex(v)
-        return string.format("%02X", math.floor((v or 1) * 255 + 0.5))
-    end
-    return "#" .. toHex(c[1]) .. toHex(c[2]) .. toHex(c[3]) .. toHex(c[4])
-end
-
-function getRangeBand(squares)
-    if squares <= 1.5 then return "melee"
-    elseif squares <= 3 then return "veryClose"
-    elseif squares <= 6 then return "close"
-    elseif squares <= 12 then return "far"
-    else return "veryFar"
-    end
-end
-
-function onLoad()
-    local target = getObjectFromGUID(targetGuid)
-    local labelText = ""
-    local fontColor = {1, 1, 1, 1}
-    
-    if target then
-        local currentOffset = self.getVar("flyOffset") or flyOffset
-        local offsetVal = Grid.sizeX or 2
-        local squares = currentOffset / offsetVal
-        local band = getRangeBand(squares)
-        labelText = RANGE_LABELS[band] or ""
-        fontColor = RANGE_COLORS[band] or {1, 1, 1, 1}
-    end
-
-    self.UI.setXml('<Text id="rangeLabel" text="' .. labelText .. '" color="' .. colorToHex(fontColor) .. '" fontSize="22" fontStyle="Bold" alignment="MiddleCenter" width="600" height="600" position="0 0 -150" rotation="0 0 180" outline="#000000FF" outlineSize="3 -3" /> ')
-    Global.call("registerGroundIndicator", {targetGuid = targetGuid, indicatorGuid = self.getGUID()})
-
-end
-
-function updateLabel()
-    local target = getObjectFromGUID(targetGuid)
-    if not target then return end
-    
-    local currentOffset = self.getVar("flyOffset") or flyOffset
-    local offsetVal = Grid.sizeX or 2
-    local squares = currentOffset / offsetVal
-    local band = getRangeBand(squares)
-    
-    self.UI.setAttribute("rangeLabel", "text", RANGE_LABELS[band] or "")
-    self.UI.setAttribute("rangeLabel", "color", colorToHex(RANGE_COLORS[band] or {1, 1, 1, 1}))
-end
-
-function onUpdate()
-    if not ready or not targetGuid then return end
-    local target = getObjectFromGUID(targetGuid)
-    if not target then
-        destroyObject(self)
-        return
-    end
-
-    if self.getVar("isTargetPickedUp") then return end
-
-    local currentOffset = self.getVar("flyOffset") or flyOffset
-
-    local shadowPos = self.getPosition()
-    local targetY = shadowPos.y + currentOffset
-    local selfPos = target.getPosition()
-
-    local isHeld = target.held_by_color ~= nil or self.held_by_color ~= nil
-    if not isHeld then
-        local players = Player.getPlayers()
-        for _, p in ipairs(players) do
-            local sel = p.getSelectedObjects()
-            if sel then
-                for _, sObj in ipairs(sel) do
-                    if sObj == target or sObj == self then
-                        isHeld = true
-                        break
-                    end
-                end
-            end
-            if isHeld then break end
-        end
-    end
-
-    if isHeld then
-        target.setPosition({shadowPos.x, targetY, shadowPos.z})
-        target.setVelocity({0, 0, 0})
-        target.setAngularVelocity({0, 0, 0})
-    else
-        if math.abs(selfPos.x - shadowPos.x) > 0.01 
-            or math.abs(selfPos.z - shadowPos.z) > 0.01 
-            or math.abs(selfPos.y - targetY) > 0.01 
-        then
-            target.setPositionSmooth({shadowPos.x, targetY, shadowPos.z}, false, false)
-        end
-    end
-end
-]]
-            obj.setLuaScript(luaScript)
-
-            Wait.condition(function()
-                obj.setLock(false)
-                obj.interactable = true
-                obj.use_gravity = true
-                obj.use_grid = false
-                obj.tooltip = true
-
-                local col = obj.getComponent("BoxCollider") or obj.getComponent("MeshCollider") or obj.getComponent("CapsuleCollider")
-                if col then
-                    col.set("enabled", true)
-                end
-            end, function() return not obj.loading_custom end)
-        end
+        callback_function = function(pin)
+            pin.addTag(OBJECT_TAGS.board_mirror_slave)
+            state.slaves[pin.getGUID()] = {
+                master = masterGuid,
+                board = nil,
+                mode = mode,
+                color = nextColor(masterGuid),
+            }
+            stylePin(pin)
+            addPinMenu(pin)
+            save()
+        end,
     })
 end
 
-function Flying.destroyGroundIndicator(target)
-    local indicator = target.getVar("groundIndicator")
-    if indicator then
-        destroyObject(indicator)
-        target.setVar("groundIndicator", nil)
-    end
+local function removeSlave(slaveGuid)
+    if not state.slaves[slaveGuid] then return end
+    state.slaves[slaveGuid] = nil
+    destroyGhostsOfSlave(slaveGuid)
+    local pin = getObjectFromGUID(slaveGuid)
+    if pin then pin.destruct() end
+    save()
 end
 
-function Flying.onPickUp(obj, player_color)
-    local shadow = obj.getVar("groundIndicator")
-    if shadow then
-        shadow.setVar("isTargetPickedUp", true)
+local function removeMaster(masterGuid)
+    for slaveGuid, link in pairs(state.slaves) do
+        if link.master == masterGuid then removeSlave(slaveGuid) end
     end
+    state.masters[masterGuid] = nil
+    save()
 end
 
-function Flying.onDrop(obj, player_color)
-    local shadow = obj.getVar("groundIndicator")
-    if shadow then
-        shadow.setVar("isTargetPickedUp", false)
-        local pos = obj.getPosition()
-        local groundY = Flying.getGroundHeight(obj)
-        shadow.setPosition({pos.x, groundY + 0.02, pos.z})
-    end
-end
-
-function Flying.getGroundHeight(obj)
-    local pos = obj.getPosition()
-    local origin = {
-        x = pos.x,
-        y = pos.y + 0.1,
-        z = pos.z
-    }
-    local hitList = Physics.cast({
-        origin = origin,
-        direction = {0, -1, 0},
-        type = 1,
-        max_distance = 30,
-        debug = false
-    })
-    for _, hit in ipairs(hitList) do
-        if hit ~= nil and hit.hit_object ~= nil and hit.hit_object ~= obj then
-            local shadow = obj.getVar("groundIndicator")
-            if not shadow or hit.hit_object ~= shadow then
-                return hit.point.y
+addPinMenu = function(pin)
+    pin.clearContextMenu()
+    local guid = pin.getGUID()
+    if state.masters[guid] then
+        pin.addContextMenuItem("Spawn slave", function() spawnSlave(pin, "3d") end)
+        pin.addContextMenuItem("Spawn shadow slave", function() spawnSlave(pin, "shadow") end)
+        pin.addContextMenuItem("Remove all slaves", function()
+            for slaveGuid, link in pairs(state.slaves) do
+                if link.master == guid then removeSlave(slaveGuid) end
             end
+        end)
+    elseif state.slaves[guid] then
+        pin.addContextMenuItem("Toggle 3D / shadow", function()
+            local link = state.slaves[guid]
+            if not link then return end
+            link.mode = link.mode == "shadow" and "3d" or "shadow"
+            destroyGhostsOfSlave(guid)
+            stylePin(pin)
+            save()
+            BoardMirror.syncAll()
+        end)
+        pin.addContextMenuItem("Next color", function()
+            local link = state.slaves[guid]
+            if not link then return end
+            link.color = (link.color % #PALETTE) + 1
+            destroyGhostsOfSlave(guid)
+            stylePin(pin)
+            save()
+            BoardMirror.syncAll()
+        end)
+        pin.addContextMenuItem("Unlink", function() removeSlave(guid) end)
+    end
+end
+
+local function pinsOnBoard(boardGuid)
+    local pins = {}
+    for guid, m in pairs(state.masters) do
+        if m.board == boardGuid then table.insert(pins, guid) end
+    end
+    for guid, s in pairs(state.slaves) do
+        if s.board == boardGuid then table.insert(pins, guid) end
+    end
+    return pins
+end
+
+local function setBoardHidden(boardGuid, hidden)
+    state.hidden[boardGuid] = hidden or nil
+    for _, guid in ipairs(pinsOnBoard(boardGuid)) do
+        local pin = getObjectFromGUID(guid)
+        if pin then applyHidden(pin, hidden) end
+    end
+    save()
+end
+
+-- Global can add menu items to any object; the callbacks run here, so the
+-- boards themselves never need a script. Script-added items do not survive a
+-- reload, which is why init() adds them again.
+addBoardMenu = function(board)
+    local guid = board.getGUID()
+    if board_menus[guid] then return end
+    board_menus[guid] = true
+    board.addContextMenuItem("Mirror: hide pins", function() setBoardHidden(guid, true) end)
+    board.addContextMenuItem("Mirror: show pins", function() setBoardHidden(guid, false) end)
+end
+
+local function spawnMaster(position)
+    spawnObject({
+        type = "PlayerPawn",
+        position = position + Vector(0, 2, 0),
+        sound = false,
+        callback_function = function(pin)
+            pin.addTag(OBJECT_TAGS.board_mirror_master)
+            state.masters[pin.getGUID()] = { board = nil }
+            stylePin(pin)
+            addPinMenu(pin)
+            save()
+        end,
+    })
+end
+
+------------------------------------------------------------------------------
+-- Entry points (called from main.lua)
+------------------------------------------------------------------------------
+
+function BoardMirror.init()
+    state = SAVED_DATA.BOARD_MIRROR or {}
+    state.masters = state.masters or {}
+    state.slaves = state.slaves or {}
+    state.hidden = state.hidden or {}
+
+    -- Ghosts are rebuilt rather than restored.
+    for _, obj in ipairs(getObjectsWithTag(OBJECT_TAGS.board_mirror_ghost)) do
+        obj.destruct()
+    end
+
+    for guid in pairs(state.masters) do
+        if getObjectFromGUID(guid) == nil then state.masters[guid] = nil end
+    end
+    for guid, link in pairs(state.slaves) do
+        if getObjectFromGUID(guid) == nil or state.masters[link.master] == nil then
+            state.slaves[guid] = nil
         end
     end
-    return 0
-end
 
-function Flying.registerGroundIndicator(params)
-    if not params or not params.targetGuid or not params.indicatorGuid then return end
-    local target = getObjectFromGUID(params.targetGuid)
-    local indicator = getObjectFromGUID(params.indicatorGuid)
-    if target and indicator then
-        target.setVar("groundIndicator", indicator)
-    end
-end
-
-function Flying.updateVisibility(target_guid, visible)
-    local target = getObjectFromGUID(target_guid)
-    if target then
-        local shadow = target.getVar("groundIndicator")
-        if shadow then
-            shadow.setInvisibleTo(visible and {} or utils.hideFromPlayersArray())
-            shadow.setColorTint(visible and {0, 0, 0} or {0, 0, 0, 0.5})
-            shadow.UI.setAttribute("rangeLabel", "visibility", visible and "" or "Black")
+    local function restore(guid, entry)
+        local pin = getObjectFromGUID(guid)
+        stylePin(pin)
+        addPinMenu(pin)
+        if entry.board then
+            local board = getObjectFromGUID(entry.board)
+            if board then addBoardMenu(board) end
+            if state.hidden[entry.board] then applyHidden(pin, true) end
         end
     end
+    for guid, entry in pairs(state.masters) do restore(guid, entry) end
+    for guid, entry in pairs(state.slaves) do restore(guid, entry) end
+    save()
+
+    addContextMenuItem("Spawn mirror master pin", function(player_color, position)
+        spawnMaster(Vector(position))
+    end)
+
+    -- Let the deleted ghosts finish going before spawning new ones.
+    Wait.frames(BoardMirror.syncAll, 2)
 end
 
-return Flying
+function BoardMirror.onPickUp(obj)
+    if state == nil then return end
+    if isTracked(obj) then follow(obj) end
+end
+
+function BoardMirror.onDrop(obj)
+    if state == nil then return end
+    if isTracked(obj) then
+        follow(obj)
+    elseif isPin(obj) then
+        -- Re-detect the board once the pin has landed.
+        Wait.condition(function()
+            if obj.isDestroyed() then return end
+            placePin(obj)
+            BoardMirror.syncAll()
+        end, function() return obj.isDestroyed() or obj.resting end, 5)
+    end
+end
+
+function BoardMirror.onDestroy(obj)
+    if state == nil or isGhost(obj) then return end
+    local guid = obj.getGUID()
+    if state.masters[guid] then
+        removeMaster(guid)
+    elseif state.slaves[guid] then
+        state.slaves[guid] = nil
+        destroyGhostsOfSlave(guid)
+        save()
+    elseif ghosts[guid] then
+        stopFollowing(guid)
+        destroyGhostsOfToken(guid)
+    end
+end
+
+return BoardMirror
+
 end)
 __bundle_register("src.data.config", function(require, _LOADED, __bundle_register, __bundle_modules)
 
@@ -792,7 +1071,10 @@ OBJECT_TAGS = {
     infinite_container = "infinite_container",
     movement_measurement = "movement_measurement",
     flying = "flying",
-    player = "player_token"
+    player = "player_token",
+    board_mirror_master = "board_mirror_master",
+    board_mirror_slave = "board_mirror_slave",
+    board_mirror_ghost = "board_mirror_ghost"
 }
 
 SAVED_DATA = {
@@ -1432,6 +1714,424 @@ function contextMenuFunction(player_color, tagToPull, varName)
 end
 
 return TargetedSpawn
+end)
+__bundle_register("src.core.flying", function(require, _LOADED, __bundle_register, __bundle_modules)
+local utils = require("src.core.utils")
+require("src.data.config")
+
+local Flying = {}
+
+local OFFSET_VALUE = Grid.sizeX or 2
+
+local RANGE_COLORS = {
+    melee     = {0, 0.4550, 0.8510, 1},
+    veryClose = {0, 0.659, 0.976, 1},
+    close     = {0.204, 0.91, 0, 1},
+    far       = {0.918, 0.416, 0, 1},
+    veryFar   = {0.91, 0.169, 0.169, 1}
+}
+
+local RANGE_LABELS = {
+    melee     = "Melee",
+    veryClose = "Very\nClose",
+    close     = "Close",
+    far       = "Far",
+    veryFar   = "Very\nFar"
+}
+
+function Flying.create(target)
+    target.addTag(OBJECT_TAGS.flying)
+    
+    -- Add context menus
+    target.addContextMenuItem("Fly Up", function(player_color)
+        Flying.flyUp(target, player_color)
+    end, true)
+    target.addContextMenuItem("Fly Down", function(player_color)
+        Flying.flyDown(target, player_color)
+    end, true)
+
+    -- Create fly height button if it doesn't exist
+    if not Flying.getFlyButtonIndex(target) then
+        local bounds = target.getBounds()
+        local z_pos = bounds.size.z * 0.45
+        if z_pos < 0.35 then z_pos = 0.35 end
+        if z_pos > 1.3 then z_pos = 1.3 end
+        
+        target.createButton({
+            click_function = "resetFlyButton",
+            function_owner = self,
+            label = "",
+            position = {x = 1.3, y = 0.05, z = z_pos},
+            rotation = {0, 0, 0},
+            width = 600,
+            height = 475,
+            font_size = 300,
+            color = {0, 0.4550, 0.8510, 0},
+            font_color = {1, 1, 1, 0},
+            tooltip = "Height",
+            scale = {0.3, 0.3, 0.3}
+        })
+    end
+
+    target.setVar("flyOffset", 0)
+    target.setVar("isFloating", false)
+    target.setVar("groundIndicator", nil)
+end
+
+function Flying.getFlyButtonIndex(target)
+    local buttons = target.getButtons()
+    if not buttons then return nil end
+    for _, btn in ipairs(buttons) do
+        if btn.click_function == "resetFlyButton" then
+            return btn.index
+        end
+    end
+    return nil
+end
+
+function Flying.flyUp(target, player_color)
+    if not target.hasTag(OBJECT_TAGS.player) and player_color ~= "Black" then return end
+    local currentOffset = target.getVar("flyOffset") or 0
+    
+    if currentOffset == 0 then
+        local pos = target.getPosition()
+        target.setPosition({pos.x, pos.y + 0.5, pos.z})
+    end
+
+    local nextOffset = currentOffset + OFFSET_VALUE
+    target.setVar("flyOffset", nextOffset)
+    Flying.setFloat(target, nextOffset)
+end
+
+function Flying.flyDown(target, player_color)
+    if not target.hasTag(OBJECT_TAGS.player) and player_color ~= "Black" then return end
+    local currentOffset = target.getVar("flyOffset") or 0
+    if currentOffset > 0 then
+        local nextOffset = currentOffset - OFFSET_VALUE
+        target.setVar("flyOffset", nextOffset)
+        Flying.setFloat(target, nextOffset)
+    end
+end
+
+function Flying.resetFlyButton(target, player_color)
+    if not target.hasTag(OBJECT_TAGS.player) and player_color ~= "Black" then return end
+    target.setVar("flyOffset", 0)
+    Flying.setFloat(target, 0)
+end
+
+function Flying.setFloat(target, offset)
+    if offset == 0 then
+        target.setVar("isFloating", false)
+        target.use_gravity = true
+        Flying.destroyGroundIndicator(target)
+    else
+        target.setVar("isFloating", true)
+        target.use_gravity = false
+        Flying.spawnGroundIndicator(target, offset)
+    end
+    Flying.updateHeightButton(target, offset)
+end
+
+function Flying.getRangeBand(squares)
+    if squares <= 1.5 then return "melee"
+    elseif squares <= 3 then return "veryClose"
+    elseif squares <= 6 then return "close"
+    elseif squares <= 12 then return "far"
+    else return "veryFar"
+    end
+end
+
+function Flying.updateHeightButton(target, offset)
+    local btnIndex = Flying.getFlyButtonIndex(target)
+    if not btnIndex then return end
+
+    if offset == 0 then
+        target.editButton({
+            index = btnIndex,
+            font_color = {1, 1, 1, 0},
+            color = {0, 0.4550, 0.8510, 0}
+        })
+    else
+        local squares = offset / OFFSET_VALUE
+        local band = Flying.getRangeBand(squares)
+        target.editButton({
+            index = btnIndex,
+            font_color = {1, 1, 1, 1},
+            color = RANGE_COLORS[band],
+            label = "+" .. math.floor(squares * 5)
+        })
+    end
+end
+
+function Flying.spawnGroundIndicator(target, offset)
+    local guid = target.getGUID()
+    local indicator = target.getVar("groundIndicator")
+    if indicator then
+        indicator.setVar("flyOffset", offset)
+        indicator.call("updateLabel")
+        return
+    end
+
+    local bounds = target.getBounds()
+    local size = math.max(bounds.size.x, bounds.size.z) * 0.45
+    local pos = target.getPosition()
+    local groundY = Flying.getGroundHeight(target)
+
+    local isVisible = true
+    if target.getVar("is_visible") then
+        local success, res = pcall(function() return target.call("is_visible") end)
+        if success and res ~= nil then
+            isVisible = res
+        end
+    end
+
+    local invisible_players = {}
+    if not isVisible then
+        invisible_players = utils.hideFromPlayersArray()
+    end
+
+    spawnObject({
+        type = "reversi_chip",
+        position = {pos.x, groundY + 0.02, pos.z},
+        rotation = {0, 0, 0},
+        scale = {size, 0.02, size},
+        sound = false,
+        callback_function = function(obj)
+            target.setVar("groundIndicator", obj)
+            obj.setColorTint({0, 0, 0})
+            obj.setName("Height Base")
+            obj.sticky = false
+            obj.setInvisibleTo(invisible_players)
+
+            local originalTags = target.getTags()
+            if originalTags then
+                local filteredTags = {}
+                for _, tag in ipairs(originalTags) do
+                    if tag ~= OBJECT_TAGS.flying and tag ~= OBJECT_TAGS.movement_measurement then
+                        table.insert(filteredTags, tag)
+                    end
+                end
+                obj.setTags(filteredTags)
+            end
+
+            obj.addContextMenuItem("Fly Up", function(player_color)
+                Flying.flyUp(target, player_color)
+            end, true)
+            obj.addContextMenuItem("Fly Down", function(player_color)
+                Flying.flyDown(target, player_color)
+            end, true)
+            obj.addContextMenuItem("Reset Height", function(player_color)
+                Flying.resetFlyButton(target, player_color)
+            end, true)
+
+            local rot = target.getRotation()
+            obj.setRotation({0, rot.y, 0})
+
+            local luaScript = [[
+local targetGuid = "]] .. guid .. [["
+local flyOffset = ]] .. offset .. [[
+local ready = true
+
+local RANGE_COLORS = {
+    melee     = {0, 0.4550, 0.8510, 1},
+    veryClose = {0, 0.659, 0.976, 1},
+    close     = {0.204, 0.91, 0, 1},
+    far       = {0.918, 0.416, 0, 1},
+    veryFar   = {0.91, 0.169, 0.169, 1}
+}
+local RANGE_LABELS = {
+    melee     = "Melee",
+    veryClose = "Very\nClose",
+    close     = "Close",
+    far       = "Far",
+    veryFar   = "Very\nFar"
+}
+
+function colorToHex(c)
+    local function toHex(v)
+        return string.format("%02X", math.floor((v or 1) * 255 + 0.5))
+    end
+    return "#" .. toHex(c[1]) .. toHex(c[2]) .. toHex(c[3]) .. toHex(c[4])
+end
+
+function getRangeBand(squares)
+    if squares <= 1.5 then return "melee"
+    elseif squares <= 3 then return "veryClose"
+    elseif squares <= 6 then return "close"
+    elseif squares <= 12 then return "far"
+    else return "veryFar"
+    end
+end
+
+function onLoad()
+    local target = getObjectFromGUID(targetGuid)
+    local labelText = ""
+    local fontColor = {1, 1, 1, 1}
+    
+    if target then
+        local currentOffset = self.getVar("flyOffset") or flyOffset
+        local offsetVal = Grid.sizeX or 2
+        local squares = currentOffset / offsetVal
+        local band = getRangeBand(squares)
+        labelText = RANGE_LABELS[band] or ""
+        fontColor = RANGE_COLORS[band] or {1, 1, 1, 1}
+    end
+
+    self.UI.setXml('<Text id="rangeLabel" text="' .. labelText .. '" color="' .. colorToHex(fontColor) .. '" fontSize="22" fontStyle="Bold" alignment="MiddleCenter" width="600" height="600" position="0 0 -150" rotation="0 0 180" outline="#000000FF" outlineSize="3 -3" /> ')
+    Global.call("registerGroundIndicator", {targetGuid = targetGuid, indicatorGuid = self.getGUID()})
+
+end
+
+function updateLabel()
+    local target = getObjectFromGUID(targetGuid)
+    if not target then return end
+    
+    local currentOffset = self.getVar("flyOffset") or flyOffset
+    local offsetVal = Grid.sizeX or 2
+    local squares = currentOffset / offsetVal
+    local band = getRangeBand(squares)
+    
+    self.UI.setAttribute("rangeLabel", "text", RANGE_LABELS[band] or "")
+    self.UI.setAttribute("rangeLabel", "color", colorToHex(RANGE_COLORS[band] or {1, 1, 1, 1}))
+end
+
+function onUpdate()
+    if not ready or not targetGuid then return end
+    local target = getObjectFromGUID(targetGuid)
+    if not target then
+        destroyObject(self)
+        return
+    end
+
+    if self.getVar("isTargetPickedUp") then return end
+
+    local currentOffset = self.getVar("flyOffset") or flyOffset
+
+    local shadowPos = self.getPosition()
+    local targetY = shadowPos.y + currentOffset
+    local selfPos = target.getPosition()
+
+    local isHeld = target.held_by_color ~= nil or self.held_by_color ~= nil
+    if not isHeld then
+        local players = Player.getPlayers()
+        for _, p in ipairs(players) do
+            local sel = p.getSelectedObjects()
+            if sel then
+                for _, sObj in ipairs(sel) do
+                    if sObj == target or sObj == self then
+                        isHeld = true
+                        break
+                    end
+                end
+            end
+            if isHeld then break end
+        end
+    end
+
+    if isHeld then
+        target.setPosition({shadowPos.x, targetY, shadowPos.z})
+        target.setVelocity({0, 0, 0})
+        target.setAngularVelocity({0, 0, 0})
+    else
+        if math.abs(selfPos.x - shadowPos.x) > 0.01 
+            or math.abs(selfPos.z - shadowPos.z) > 0.01 
+            or math.abs(selfPos.y - targetY) > 0.01 
+        then
+            target.setPositionSmooth({shadowPos.x, targetY, shadowPos.z}, false, false)
+        end
+    end
+end
+]]
+            obj.setLuaScript(luaScript)
+
+            Wait.condition(function()
+                obj.setLock(false)
+                obj.interactable = true
+                obj.use_gravity = true
+                obj.use_grid = false
+                obj.tooltip = true
+
+                local col = obj.getComponent("BoxCollider") or obj.getComponent("MeshCollider") or obj.getComponent("CapsuleCollider")
+                if col then
+                    col.set("enabled", true)
+                end
+            end, function() return not obj.loading_custom end)
+        end
+    })
+end
+
+function Flying.destroyGroundIndicator(target)
+    local indicator = target.getVar("groundIndicator")
+    if indicator then
+        destroyObject(indicator)
+        target.setVar("groundIndicator", nil)
+    end
+end
+
+function Flying.onPickUp(obj, player_color)
+    local shadow = obj.getVar("groundIndicator")
+    if shadow then
+        shadow.setVar("isTargetPickedUp", true)
+    end
+end
+
+function Flying.onDrop(obj, player_color)
+    local shadow = obj.getVar("groundIndicator")
+    if shadow then
+        shadow.setVar("isTargetPickedUp", false)
+        local pos = obj.getPosition()
+        local groundY = Flying.getGroundHeight(obj)
+        shadow.setPosition({pos.x, groundY + 0.02, pos.z})
+    end
+end
+
+function Flying.getGroundHeight(obj)
+    local pos = obj.getPosition()
+    local origin = {
+        x = pos.x,
+        y = pos.y + 0.1,
+        z = pos.z
+    }
+    local hitList = Physics.cast({
+        origin = origin,
+        direction = {0, -1, 0},
+        type = 1,
+        max_distance = 30,
+        debug = false
+    })
+    for _, hit in ipairs(hitList) do
+        if hit ~= nil and hit.hit_object ~= nil and hit.hit_object ~= obj then
+            local shadow = obj.getVar("groundIndicator")
+            if not shadow or hit.hit_object ~= shadow then
+                return hit.point.y
+            end
+        end
+    end
+    return 0
+end
+
+function Flying.registerGroundIndicator(params)
+    if not params or not params.targetGuid or not params.indicatorGuid then return end
+    local target = getObjectFromGUID(params.targetGuid)
+    local indicator = getObjectFromGUID(params.indicatorGuid)
+    if target and indicator then
+        target.setVar("groundIndicator", indicator)
+    end
+end
+
+function Flying.updateVisibility(target_guid, visible)
+    local target = getObjectFromGUID(target_guid)
+    if target then
+        local shadow = target.getVar("groundIndicator")
+        if shadow then
+            shadow.setInvisibleTo(visible and {} or utils.hideFromPlayersArray())
+            shadow.setColorTint(visible and {0, 0, 0} or {0, 0, 0, 0.5})
+            shadow.UI.setAttribute("rangeLabel", "visibility", visible and "" or "Black")
+        end
+    end
+end
+
+return Flying
 end)
 __bundle_register("src.core.movement_measurement", function(require, _LOADED, __bundle_register, __bundle_modules)
 local utils = require("src.core.utils")
