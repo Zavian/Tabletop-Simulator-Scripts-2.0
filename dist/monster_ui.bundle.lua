@@ -613,30 +613,40 @@ function toggleVisibilityMenu(player_color)
         return
     end
 
-    _visible = not _visible
+    -- Every selected monster takes the clicked one's new state, and each one
+    -- applies it through its own script so its is_visible() stays truthful.
+    local visible = not _visible
 
     local objs = Player["Black"].getSelectedObjects()
+    local includesSelf = false
+    for i = 1, #objs do
+        if objs[i] == self then includesSelf = true end
+    end
+    if not includesSelf then
+        table.insert(objs, self)
+    end
+
     for i = 1, #objs do
         if hasScriptingTags(objs[i]) then
-            if not _visible then
-                objs[i].setInvisibleTo(utils.hideFromPlayersArray())
-
-                local c = objs[i].getColorTint()
-                objs[i].setColorTint({r=c.r, g=c.g, b=c.b, a=0.3})
-                objs[i].call("setHiddenCondition")
-            else
-                objs[i].setInvisibleTo({})
-
-                local c = objs[i].getColorTint()
-                objs[i].setColorTint({r=c.r, g=c.g, b=c.b, a=1})
-                objs[i].call("clearHiddenCondition")
-            end
-            Global.call("updateFlyingVisibility", {guid = objs[i].getGUID(), visible = _visible})
-
-            -- toggleCondition("hidden")
-
+            objs[i].call("setVisible", {visible = visible})
         end
     end
+end
+
+function setVisible(params)
+    _visible = params.visible
+
+    local c = self.getColorTint()
+    if not _visible then
+        self.setInvisibleTo(utils.hideFromPlayersArray())
+        self.setColorTint({r=c.r, g=c.g, b=c.b, a=0.3})
+        setHiddenCondition()
+    else
+        self.setInvisibleTo({})
+        self.setColorTint({r=c.r, g=c.g, b=c.b, a=1})
+        clearHiddenCondition()
+    end
+    Global.call("updateFlyingVisibility", {guid = self.getGUID(), visible = _visible})
 end
 
 function is_visible()
@@ -1526,7 +1536,10 @@ OBJECT_TAGS = {
     infinite_container = "infinite_container",
     movement_measurement = "movement_measurement",
     flying = "flying",
-    player = "player_token"
+    player = "player_token",
+    board_mirror_master = "board_mirror_master",
+    board_mirror_slave = "board_mirror_slave",
+    board_mirror_ghost = "board_mirror_ghost"
 }
 
 SAVED_DATA = {
