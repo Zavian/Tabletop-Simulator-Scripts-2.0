@@ -12,7 +12,13 @@
 -- copy ever falls under the 0.1 minimum (2.05 is three copies of ~0.68, not two
 -- of 1 plus a 0.05 sliver).
 --
--- SITS ON. Each row can name another layer it sits on. Its base is then that
+-- LIVE. Once a stack is built, edits apply to it as you make them: Y, sits on,
+-- position 0, rotation and scale just move the existing pieces; a height or
+-- merge-distance change respawns only that layer's pieces (a token's thickness
+-- cannot be changed in place). BUILD still rebuilds everything from scratch.
+--
+-- SITS ON. Each row can name another layer it sits on, from its dropdown or by
+-- pressing its PICK button and then clicking the other layer's name. Its base is then that
 -- layer's top (measured in game, like everything else) plus its own Y, so Y
 -- becomes an offset above the other layer, normally 0. Chains are fine (stair 5
 -- on stair 4 on stair 3...); a choice that would make a loop is refused. The
@@ -36,8 +42,8 @@
 -- in the full image's frame. If layers ever appear offset from each other in
 -- game, that assumption is the place to look.
 --
--- Pieces are tagged in `memo` with this object's GUID and their layer's id
--- ("<guid>|<id>"), so CLEAR finds them even after a reload or a copy/paste of
+-- Pieces are tagged in `memo` with this object's GUID, their layer's id, their
+-- copy number, thickness and merge distance ("<guid>|<id>|<copy>|<t>|<m>"), so CLEAR finds them even after a reload or a copy/paste of
 -- the controller, and clicking a layer's name highlights and pings its pieces.
 -- The id is stable, not the row number: removing a row would otherwise point
 -- every row below it at its neighbour's pieces.
@@ -78,10 +84,13 @@ local state = {
     map = nil, -- name/size from the last imported stack JSON, carried into saves
     mapWidth = nil,
     mapHeight = nil,
+    refGuid = "", -- COPY FROM's object; empty means this object
 }
 
 local pasteBuffer = ""
 local clearLayersArmed = false
+local pickFor = nil -- id of the layer whose PICK is waiting for a click on another name
+local syncToken = 0 -- debounces live updates
 local buildId = 0 -- bumped on every build/clear so a stale build stops placing
 local status = "Paste links and press ADD."
 
@@ -155,6 +164,16 @@ local function pieceTag(layer)
     return self.getGUID() .. "|" .. layer.id
 end
 
+-- "<guid>|<id>|<copy>|<thickness>|<merge>" -> id, copy, thickness, merge. Older
+-- builds wrote "<guid>|<id>" or the bare GUID; those parse with the gaps empty.
+local function parseMemo(memo)
+    local guid = self.getGUID()
+    if type(memo) ~= "string" or memo:sub(1, #guid) ~= guid then return nil end
+    local parts = {}
+    for part in (memo:sub(#guid + 2) .. "|"):gmatch("([^|]*)|") do parts[#parts + 1] = part end
+    return tonumber(parts[1]), tonumber(parts[2]) or 1, tonumber(parts[3]), tonumber(parts[4])
+end
+
 local function layerIndexById(id)
     for i, layer in ipairs(state.layers) do
         if layer.id == id then return i end
@@ -205,6 +224,23 @@ local function isOurPiece(obj)
     local guid = self.getGUID()
     local memo = obj.memo
     return memo == guid or (type(memo) == "string" and memo:sub(1, #guid + 1) == guid .. "|")
+end
+
+-- This controller's pieces on the table, by layer id, each list in copy order.
+local function piecesByLayerId()
+    local byId = {}
+    for _, obj in ipairs(getObjects()) do
+        if isOurPiece(obj) then
+            local id, copy, thickness, merge = parseMemo(obj.memo)
+            local key = id or "old"
+            byId[key] = byId[key] or {}
+            table.insert(byId[key], { obj = obj, copy = copy, thickness = thickness, merge = merge })
+        end
+    end
+    for _, list in pairs(byId) do
+        table.sort(list, function(a, b) return a.copy < b.copy end)
+    end
+    return byId
 end
 
 local function indexFromId(id)
@@ -292,22 +328,26 @@ function rebuildUI()
  %s
     %s
     %s
+ %s
     %s
     %s
     <Button id="rm_%d" text="X" preferredWidth="30" onClick="onRemoveLayer" colors="#EF4444|#DC2626|#B91C1C|#EF444480" />
 </HorizontalLayout>]],
             ROW_HEIGHT,
             string.format(
-                '<Button id="nm_%d" preferredWidth="250" textAlignment="MiddleLeft" fontStyle="Normal" colors="' .. NAME_COLORS .. '" textColor="' .. NAME_TEXT_COLOR .. '" onClick="onSelectLayer" tooltip="Click to highlight and ping its pieces. %s">%s</Button>',
+                '<Button id="nm_%d" preferredWidth="210" textAlignment="MiddleLeft" fontStyle="Normal" colors="' .. NAME_COLORS .. '" textColor="' .. NAME_TEXT_COLOR .. '" onClick="onSelectLayer" tooltip="Click to highlight and ping its pieces. %s">%s</Button>',
                 i, xmlEscape(layer.url), xmlEscape(i .. ". " .. layer.name)),
             input("h_" .. i, heightText(layer), 80, "onLayerHeight", "None"),
             input("y_" .. i, fmt(layer.y), 80, "onLayerY"),
             sitsOnDropdown(i, layer),
+            string.format('<Button id="pk_%d" preferredWidth="46" fontSize="11" onClick="onPickParent" colors="%s" textColor="%s" tooltip="Then click the name of the layer this one sits on">PICK</Button>',
+                i, pickFor == layer.id and "#FFD91A|#FFE45C|#E6C200|#FFD91A80" or "#272A34|#3B3E4D|#1A1C23|#272A3480",
+                pickFor == layer.id and "#000000" or "#FFFFFF"),
             label(count > 1 and ("x" .. count) or "", 50, 'class="dim"'),
             i)
     end
 
-    local height = 368 + #state.layers * (ROW_HEIGHT + 6)
+    local height = 404 + #state.layers * (ROW_HEIGHT + 6)
 
     local xml = string.format([[
 <Defaults>
@@ -333,13 +373,17 @@ function rebuildUI()
     <Text class="dim" preferredHeight="18" alignment="MiddleLeft">Position 0 (world) - everything is measured from here</Text>
     <HorizontalLayout preferredHeight="30" spacing="6" childForceExpandWidth="false">
         %s %s %s %s %s %s
-        <Button text="FROM OBJECT" preferredWidth="130" onClick="onOriginFromObject" />
+    </HorizontalLayout>
+    <HorizontalLayout preferredHeight="30" spacing="6" childForceExpandWidth="false">
+        <Text preferredWidth="120" alignment="MiddleLeft">Copy from GUID</Text>
+        %s
+        <Button text="COPY FROM" preferredWidth="130" onClick="onCopyFrom" tooltip="Position, Y rotation and scale of that object. Empty: this object." />
     </HorizontalLayout>
     <HorizontalLayout preferredHeight="30" spacing="6" childForceExpandWidth="false">
         %s %s %s %s %s %s
     </HorizontalLayout>
     <HorizontalLayout preferredHeight="20" spacing="6" childForceExpandWidth="false">
-        %s %s %s %s %s
+        %s %s %s %s %s %s
     </HorizontalLayout>
     %s
     <Text id="txt_status" class="dim" preferredHeight="36">%s</Text>
@@ -349,18 +393,31 @@ function rebuildUI()
         label("X", 20), input("ox", fmt(state.origin.x), 90, "onOriginX"),
         label("Y", 20), input("oy", fmt(state.origin.y), 90, "onOriginY"),
         label("Z", 20), input("oz", fmt(state.origin.z), 90, "onOriginZ"),
+        string.format('<InputField id="guid" text="%s" placeholder="this object" preferredWidth="120" fontSize="13" onValueChanged="onGuidChanged" />', xmlEscape(state.refGuid or "")),
         label("Rot Y", 50), input("rot", fmt(state.rotation), 80, "onRotation"),
         label("Scale", 50), input("scale", fmt(state.scale), 80, "onScale"),
         label("Merge px", 70), input("merge", fmt(state.merge), 80, "onMerge", "Integer"),
-        label("Layer", 250, 'class="dim" alignment="MiddleLeft"'),
+        label("Layer", 210, 'class="dim" alignment="MiddleLeft"'),
         label("Height", 80, 'class="dim"'),
         label("Y", 80, 'class="dim"'),
         label("Sits on", 130, 'class="dim"'),
+        label("", 46),
         label("", 50),
         table.concat(rows, "\n"),
         xmlEscape(status))
 
     self.UI.setXml(xml)
+end
+
+-- Applies the current settings to the built stack a moment after the last edit,
+-- so tabbing through several fields costs one update. Does nothing until a stack
+-- has been built; see sync().
+function scheduleSync(player)
+    syncToken = syncToken + 1
+    local token = syncToken
+    Wait.time(function()
+        if token == syncToken then sync(player) end
+    end, 0.4)
 end
 
 -------------------------------------------------------------------------------
@@ -403,6 +460,7 @@ function onAddLinks(player)
         status = "Added " .. added .. " layer(s). Set heights and Y, then BUILD."
     end
     rebuildUI()
+    if added > 0 then scheduleSync(player) end
 end
 
 -- Replaces the layer list with a Scriptorium stack JSON (format in the header).
@@ -492,6 +550,7 @@ function onImportJson(player)
     clearLayersArmed = false
     status = "Imported " .. #layers .. " layer(s)" .. (type(data.map) == "string" and (" of " .. data.map) or "") .. ". Press BUILD."
     rebuildUI()
+    scheduleSync(player)
 end
 
 -- Puts the current list in the paste box as stack JSON, to copy out, edit in bulk
@@ -573,11 +632,21 @@ function onSelectLayer(player, _, id)
     if not isAuthorized(player) then return end
     local layer = state.layers[indexFromId(id)]
     if not layer then return end
-    local tag = pieceTag(layer)
+    if pickFor ~= nil then
+        local childIndex = layerIndexById(pickFor)
+        pickFor = nil
+        if childIndex == nil or state.layers[childIndex] == layer then
+            status = "Pick cancelled."
+            rebuildUI()
+        else
+            setSitsOn(player, state.layers[childIndex], layer)
+        end
+        return
+    end
     local top, topY
     local count = 0
     for _, obj in ipairs(getObjects()) do
-        if obj.memo == tag then
+        if isOurPiece(obj) and parseMemo(obj.memo) == layer.id then
             obj.highlightOn(HIGHLIGHT_COLOR, HIGHLIGHT_SECONDS)
             count = count + 1
             local bounds = obj.getBounds()
@@ -610,6 +679,7 @@ function onRemoveLayer(player, _, id)
     if i and state.layers[i] then
         table.remove(state.layers, i)
         rebuildUI()
+        scheduleSync(player)
     end
 end
 
@@ -621,22 +691,21 @@ local function numberField(setter, sanitise)
     end
 end
 
+-- Every endField is a layout setting (Y, position 0, rotation, scale, merge), so
+-- leaving one also updates the built stack.
 local function endField(getter)
     return function(player, _, id)
         if not isAuthorized(player) then return end
         self.UI.setAttribute(id, "text", fmt(getter(id)))
+        scheduleSync(player)
     end
 end
 
 local function layerAt(id) return state.layers[indexFromId(id)] end
 
-function onLayerSitsOn(player, value, id)
-    if not isAuthorized(player) then return end
-    local layer = layerAt(id)
-    if not layer then return end
-    local parentIndex = tonumber(tostring(value or ""):match("^(%d+)%."))
-    local parent = parentIndex and state.layers[parentIndex]
-    if value == GROUND or not parent then
+-- The one place "sits on" changes, for the dropdown and for PICK alike.
+function setSitsOn(player, layer, parent)
+    if not parent then
         layer.on = nil
         status = layer.name .. " sits on the ground."
     elseif wouldLoop(layer.id, parent.id) then
@@ -644,6 +713,31 @@ function onLayerSitsOn(player, value, id)
     else
         layer.on = parent.id
         status = layer.name .. " sits on " .. parent.name .. ". Y is now an offset above it."
+    end
+    rebuildUI()
+    scheduleSync(player)
+end
+
+function onLayerSitsOn(player, value, id)
+    if not isAuthorized(player) then return end
+    local layer = layerAt(id)
+    if not layer then return end
+    local parentIndex = tonumber(tostring(value or ""):match("^(%d+)%."))
+    setSitsOn(player, layer, value ~= GROUND and parentIndex and state.layers[parentIndex] or nil)
+end
+
+-- PICK arms the row; the next click on another layer's name sets what it sits on
+-- instead of pinging. Pressing PICK again, or clicking its own name, cancels.
+function onPickParent(player, _, id)
+    if not isAuthorized(player) then return end
+    local layer = layerAt(id)
+    if not layer then return end
+    if pickFor == layer.id then
+        pickFor = nil
+        status = "Pick cancelled."
+    else
+        pickFor = layer.id
+        status = "Click the name of the layer " .. layer.name .. " sits on."
     end
     rebuildUI()
 end
@@ -667,6 +761,7 @@ function onLayerHeightEnd(player, value, id)
     -- Redrawn every time: the field is normalised and the copy count beside it
     -- may have changed. Focus has already left the field, so nothing is lost.
     rebuildUI()
+    scheduleSync(player)
 end
 
 onLayerY = numberField(function(id, n)
@@ -694,12 +789,29 @@ onScaleEnd = endField(function() return state.scale end)
 onMerge = numberField(function(_, n) if n >= 0 then state.merge = n end end, math.floor)
 onMergeEnd = endField(function() return state.merge end)
 
-function onOriginFromObject(player)
+function onGuidChanged(player, value)
     if not isAuthorized(player) then return end
-    local p = self.getPosition()
+    state.refGuid = (value or ""):gsub("%s", "")
+end
+
+-- Position 0, Y rotation and scale from another object (or this one), so the
+-- diorama can be lined up with a map tile already on the table. Scale takes the
+-- object's X scale; pieces keep Y scale 1 either way.
+function onCopyFrom(player)
+    if not isAuthorized(player) then return end
+    local guid = state.refGuid or ""
+    local obj = guid == "" and self or getObjectFromGUID(guid)
+    if obj == nil then
+        tell(player, "No object with GUID " .. guid .. ".", { 1, 0.6, 0.2 })
+        return
+    end
+    local p, r, sc = obj.getPosition(), obj.getRotation(), obj.getScale()
     state.origin = { x = p.x, y = p.y, z = p.z }
-    status = "Position 0 set to this object's position."
+    state.rotation = r.y
+    state.scale = sc.x
+    status = "Position 0, rotation and scale copied from " .. (guid == "" and "this object" or guid) .. "."
     rebuildUI()
+    scheduleSync(player)
 end
 
 function onBuild(player)
@@ -734,39 +846,85 @@ function build(player)
         tell(player, "No layers to build.", { 1, 0.6, 0.2 })
         return
     end
+    sync(player, true)
+end
 
-    clearPieces()
-    local thisBuild = buildId
+local function spawnPiece(layer, copy, thickness)
     local o, s = state.origin, state.scale
+    local obj = spawnObject({
+        type = "Custom_Token",
+        position = { o.x, o.y, o.z },
+        rotation = { 0, state.rotation, 0 },
+        -- Y stays 1: a piece's height comes from its thickness alone, so the
+        -- Scale field only sizes the diorama across the table.
+        scale = { s, 1, s },
+        sound = false,
+    })
+    obj.setCustomObject({
+        image = layer.url,
+        thickness = thickness,
+        merge_distance = state.merge,
+        stackable = false,
+    })
+    obj.setLock(true)
+    obj.memo = table.concat({ pieceTag(layer), copy, thickness, state.merge }, "|")
+    return obj
+end
 
-    -- Spawned locked at position 0 so nothing falls or collides while images
-    -- load; everything is moved into place once it can be measured.
-    local pieces = {}
+-- Makes the table match the list. `force` (BUILD) respawns everything. Otherwise
+-- this is the live update: it does nothing until something has been built, keeps
+-- every piece whose layer, copy count, thickness and merge distance still match
+-- (just turning, scaling and moving it), and respawns only the layers that
+-- changed. Pieces of layers no longer in the list are removed.
+function sync(player, force)
+    local existing = piecesByLayerId()
+    if not force and next(existing) == nil then return end
+    if force then
+        clearPieces()
+        existing = {}
+    end
+    buildId = buildId + 1
+    local thisBuild = buildId
+    local s = state.scale
+
+    -- Spawned (or kept) locked, so nothing falls or collides while images load;
+    -- everything is moved into place once it can be measured.
+    local pieces, spawned = {}, 0
     for i, layer in ipairs(state.layers) do
         local count, thickness = splitLayer(layer)
-        for c = 1, count do
-            local obj = spawnObject({
-                type = "Custom_Token",
-                position = { o.x, o.y, o.z },
-                rotation = { 0, state.rotation, 0 },
-                -- Y stays 1: a piece's height comes from its thickness alone, so the
-                -- Scale field only sizes the diorama across the table.
-                scale = { s, 1, s },
-                sound = false,
-            })
-            obj.setCustomObject({
-                image = layer.url,
-                thickness = thickness,
-                merge_distance = state.merge,
-                stackable = false,
-            })
-            obj.setLock(true)
-            obj.memo = pieceTag(layer)
-            pieces[#pieces + 1] = { obj = obj, layer = i, thickness = thickness }
+        local have = existing[layer.id] or {}
+        existing[layer.id] = nil
+        local reusable = #have == count
+        for _, h in ipairs(have) do
+            if h.obj == nil or not h.thickness or math.abs(h.thickness - thickness) > 1e-6 or h.merge ~= state.merge then
+                reusable = false
+            end
+        end
+        if reusable then
+            for _, h in ipairs(have) do
+                h.obj.setRotation({ 0, state.rotation, 0 })
+                h.obj.setScale({ s, 1, s })
+                pieces[#pieces + 1] = { obj = h.obj, layer = i, thickness = thickness }
+            end
+        else
+            for _, h in ipairs(have) do
+                if h.obj ~= nil then h.obj.destruct() end
+            end
+            for c = 1, count do
+                pieces[#pieces + 1] = { obj = spawnPiece(layer, c, thickness), layer = i, thickness = thickness }
+                spawned = spawned + 1
+            end
+        end
+    end
+    -- Whatever is left belongs to removed layers, or to builds older than the
+    -- current tag format.
+    for _, list in pairs(existing) do
+        for _, h in ipairs(list) do
+            if h.obj ~= nil then h.obj.destruct() end
         end
     end
 
-    tell(player, "Loading " .. #pieces .. " piece(s)...")
+    if force then tell(player, "Loading " .. #pieces .. " piece(s)...") end
 
     local function loaded()
         for _, p in ipairs(pieces) do
@@ -776,8 +934,8 @@ function build(player)
     end
 
     Wait.condition(
-        -- One more frame so the bounds reflect the finished mesh.
-        function() Wait.frames(function() place(player, pieces, thisBuild) end, 1) end,
+        -- One more frame so the bounds reflect the finished mesh and any new scale.
+        function() Wait.frames(function() place(player, pieces, thisBuild, not force, spawned) end, 1) end,
         function() return buildId ~= thisBuild or loaded() end,
         LOAD_TIMEOUT,
         function()
@@ -787,7 +945,7 @@ function build(player)
         end)
 end
 
-function place(player, pieces, thisBuild)
+function place(player, pieces, thisBuild, live, spawned)
     if buildId ~= thisBuild then return end -- cleared or rebuilt meanwhile
     local o = state.origin
     local missing = 0
@@ -839,6 +997,11 @@ function place(player, pieces, thisBuild)
     end
     for i = 1, #state.layers do placeLayer(i) end
 
+    if live then
+        -- Status line only: a broadcast for every edit would be noise.
+        tell(nil, "Updated the stack" .. ((spawned or 0) > 0 and (" (" .. spawned .. " piece(s) respawned).") or "."))
+        return
+    end
     local msg = "Built " .. (#pieces - missing) .. " piece(s) from " .. #state.layers .. " layer(s)."
     if missing > 0 then msg = msg .. " " .. missing .. " were deleted before placing." end
     tell(player, msg, { 0.4, 1, 0.5 })
