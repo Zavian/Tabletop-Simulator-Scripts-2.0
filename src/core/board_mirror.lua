@@ -57,6 +57,7 @@ local ghosts = {}
 local timers = {}
 local rest_offset = {}
 local board_menus = {}
+local echoing = false
 
 ------------------------------------------------------------------------------
 -- Helpers
@@ -584,6 +585,66 @@ function BoardMirror.onDrop(obj)
             BoardMirror.syncAll()
         end, function() return obj.isDestroyed() or obj.resting end, 5)
     end
+end
+
+------------------------------------------------------------------------------
+-- Pings
+------------------------------------------------------------------------------
+
+-- Whether a ping landed on an object: within its footprint across, and no
+-- further than a little above its top or below its bottom. A shadow has no
+-- collider, so a ping on it lands on the board right under it.
+local function pingHits(position, obj)
+    if obj == nil or obj.isDestroyed() then return false end
+    local b = obj.getBounds()
+    local dx, dz = position.x - b.center.x, position.z - b.center.z
+    local radius = math.max(b.size.x, b.size.z) / 2
+    local half = b.size.y / 2 + 0.5
+    return dx * dx + dz * dz <= radius * radius and math.abs(position.y - b.center.y) <= half
+end
+
+-- Our own pings may come back through onPlayerPing; ignore them for a moment.
+local function echoPing(player_color, targets)
+    echoing = true
+    for _, obj in ipairs(targets) do
+        utils.pingObject(player_color, obj.getGUID())
+    end
+    Wait.frames(function() echoing = false end, 10)
+end
+
+-- Pinging a shadow pings its token; pinging a token pings all its shadows.
+function BoardMirror.onPing(player, position, object)
+    if state == nil or echoing then return end
+    position = Vector(position)
+
+    for tokenGuid, byToken in pairs(ghosts) do
+        for _, g in pairs(byToken) do
+            if pingHits(position, g.obj) then
+                local token = getObjectFromGUID(tokenGuid)
+                if token then echoPing(player.color, { token }) end
+                return
+            end
+        end
+    end
+
+    local tokenGuid = nil
+    if object and ghosts[object.getGUID()] then
+        tokenGuid = object.getGUID()
+    else
+        for guid in pairs(ghosts) do
+            if pingHits(position, getObjectFromGUID(guid)) then
+                tokenGuid = guid
+                break
+            end
+        end
+    end
+    if tokenGuid == nil then return end
+
+    local targets = {}
+    for _, g in pairs(ghosts[tokenGuid]) do
+        if g.obj and not g.obj.isDestroyed() then table.insert(targets, g.obj) end
+    end
+    if #targets > 0 then echoPing(player.color, targets) end
 end
 
 -- Flipping or spinning a token does not pick it up, so follow it from here.

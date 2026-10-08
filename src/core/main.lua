@@ -142,6 +142,10 @@ function onObjectRotate(obj, spin, flip, player_color, old_spin, old_flip)
     board_mirror.onRotate(obj)
 end
 
+function onPlayerPing(player, position, object)
+    board_mirror.onPing(player, position, object)
+end
+
 function boardMirror_registerMaster(params)
     if not params or not params.guid then return end
     board_mirror.registerMaster(params.guid)
