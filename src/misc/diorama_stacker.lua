@@ -43,7 +43,10 @@
 --     "layers": [ { "name", "url", "height", "y" }, ... ] }   -- bottom first
 -- Heights in it are already token thickness (Scriptorium's height / 10). EDIT AS
 -- JSON puts the current list in the box in the same format, so many heights can
--- be edited in a text editor and pasted back instead of field by field.
+-- be edited in a text editor and pasted back instead of field by field. SAVE TO
+-- NOTE spawns a Notecard holding the same JSON, plus a "stacker" block with the
+-- position 0, rotation, scale and merge distance, so a finished stack can be
+-- kept and rebuilt later by pasting the note's text into IMPORT JSON.
 
 -- Where the panel sits on the object. Object UI is drawn relative to the object,
 -- so these may need adjusting for the object the script is put on.
@@ -66,6 +69,9 @@ local state = {
     scale = 1,
     merge = 15, -- TTS's own default merge distance
     nextId = 1, -- for layer ids; see the header
+    map = nil, -- name/size from the last imported stack JSON, carried into saves
+    mapWidth = nil,
+    mapHeight = nil,
 }
 
 local pasteBuffer = ""
@@ -258,6 +264,7 @@ function rebuildUI()
         <Button text="ADD LINKS" onClick="onAddLinks" colors="#3B82F6|#2563EB|#1D4ED8|#3B82F680" />
         <Button text="IMPORT JSON" onClick="onImportJson" colors="#3B82F6|#2563EB|#1D4ED8|#3B82F680" />
         <Button text="EDIT AS JSON" onClick="onEditAsJson" />
+        <Button text="SAVE TO NOTE" onClick="onSaveToNote" colors="#8B5CF6|#7C3AED|#6D28D9|#8B5CF680" />
     </HorizontalLayout>
     <HorizontalLayout preferredHeight="32" spacing="6">
         <Button text="BUILD" onClick="onBuild" colors="#10B981|#059669|#047857|#10B98180" />
@@ -359,6 +366,18 @@ function onImportJson(player)
         }
     end
     state.layers = layers
+    state.map = type(data.map) == "string" and data.map or nil
+    state.mapWidth = tonumber(data.width)
+    state.mapHeight = tonumber(data.height)
+    -- A note saved by SAVE TO NOTE also carries where and how it was built.
+    local saved = type(data.stacker) == "table" and data.stacker or {}
+    local o = type(saved.origin) == "table" and saved.origin or {}
+    if tonumber(o.x) and tonumber(o.y) and tonumber(o.z) then
+        state.origin = { x = tonumber(o.x), y = tonumber(o.y), z = tonumber(o.z) }
+    end
+    if tonumber(saved.rotation) then state.rotation = tonumber(saved.rotation) end
+    if tonumber(saved.scale) and tonumber(saved.scale) > 0 then state.scale = tonumber(saved.scale) end
+    if tonumber(saved.merge) and tonumber(saved.merge) >= 0 then state.merge = math.floor(tonumber(saved.merge)) end
     pasteBuffer = ""
     clearLayersArmed = false
     status = "Imported " .. #layers .. " layer(s)" .. (type(data.map) == "string" and (" of " .. data.map) or "") .. ". Press BUILD."
@@ -367,8 +386,9 @@ end
 
 -- Puts the current list in the paste box as stack JSON, to copy out, edit in bulk
 -- and paste back with IMPORT JSON.
-function onEditAsJson(player)
-    if not isAuthorized(player) then return end
+-- The current list and settings as stack JSON: what EDIT AS JSON and SAVE TO
+-- NOTE both write, and what IMPORT JSON reads back.
+local function stackJson()
     local layers = {}
     for i, layer in ipairs(state.layers) do
         -- A split layer goes out as "0.1*3", the way it was typed, rather than as
@@ -376,9 +396,43 @@ function onEditAsJson(player)
         local height = layer.copies and heightText(layer) or tonumber(fmt(layer.height))
         layers[i] = { name = layer.name, url = layer.url, height = height, y = layer.y }
     end
-    pasteBuffer = JSON.encode_pretty({ format = "scriptorium-diorama-stack", version = 1, layers = layers })
+    return JSON.encode_pretty({
+        format = "scriptorium-diorama-stack",
+        version = 1,
+        map = state.map,
+        width = state.mapWidth,
+        height = state.mapHeight,
+        layers = layers,
+        stacker = {
+            origin = state.origin,
+            rotation = state.rotation,
+            scale = state.scale,
+            merge = state.merge,
+        },
+    })
+end
+
+function onEditAsJson(player)
+    if not isAuthorized(player) then return end
+    pasteBuffer = stackJson()
     self.UI.setAttribute("paste", "text", pasteBuffer)
     tell(player, "Current layers are in the box above. Edit them and press IMPORT JSON.")
+end
+
+-- Spawns a Notecard beside the controller holding the stack JSON, to keep a
+-- finished stack. Its text pastes straight back into IMPORT JSON.
+function onSaveToNote(player)
+    if not isAuthorized(player) then return end
+    if #state.layers == 0 then
+        tell(player, "No layers to save.", { 1, 0.6, 0.2 })
+        return
+    end
+    local p = self.getPosition()
+    local title = "Diorama stack: " .. (state.map or "untitled") .. " (" .. os.date("%Y-%m-%d %H:%M") .. ")"
+    local note = spawnObject({ type = "Notecard", position = { p.x + 3, p.y + 1, p.z }, sound = false })
+    note.setName(title)
+    note.setDescription(stackJson())
+    tell(player, "Saved " .. #state.layers .. " layer(s) to the note \"" .. title .. "\".")
 end
 
 -- Two presses, because it throws away every height and Y typed so far. Spawned
@@ -565,7 +619,6 @@ function build(player)
                 stackable = false,
             })
             obj.setLock(true)
-            obj.setName(count > 1 and string.format("%s (%d/%d)", layer.name, c, count) or layer.name)
             obj.memo = pieceTag(layer)
             pieces[#pieces + 1] = { obj = obj, layer = i, thickness = thickness }
         end
