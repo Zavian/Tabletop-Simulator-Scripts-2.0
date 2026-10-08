@@ -63,6 +63,7 @@ local TICK = 0.05
 local SHADOW_THICKNESS = 0.05
 local LABEL_HEIGHT = 0.15
 local HEARTBEAT = 1
+local BOARD_GLOW = 2
 
 -- Pin colors: bright hues, so pins and names read well on dark boards.
 local PIN_COLORS = {
@@ -1020,25 +1021,48 @@ local function pingedPin(position, object)
     return nil
 end
 
+-- Lights up the board a pin is on, in that pin's color.
+local function glowBoard(pinGuid)
+    local master, slave = state.masters[pinGuid], state.slaves[pinGuid]
+    local entry = master or slave
+    if not entry or not entry.board then return end
+    local board = getObjectFromGUID(entry.board)
+    if not board then return end
+    local key = master and colorOfId(master.id) or slave.color
+    if PIN_COLOR_BY_NAME[key or ""] == nil then return end
+    board.highlightOn(Color.fromHex(PIN_COLOR_BY_NAME[key].hex), BOARD_GLOW)
+end
+
 -- Pinging a shadow pings its token; pinging a token pings all its shadows.
 -- Pinging a slave pin pings its master; pinging a master pings all its slaves.
 function BoardMirror.onPing(player, position, object)
     if state == nil or echoing then return end
     position = Vector(position)
 
-    -- Only Black sees pins, so only Black's pings can land on one.
+    -- Only Black sees pins, so only Black's pings can land on one. The other
+    -- end(s) of the link get pinged, and every board involved glows in the
+    -- color of the pin on it.
     local pinGuid = player.color == "Black" and pingedPin(position, object) or nil
     if pinGuid then
-        local targets = {}
+        local others = {}
         if state.slaves[pinGuid] then
             local master = state.slaves[pinGuid].master
-            if master then table.insert(targets, getObjectFromGUID(master)) end
+            if master then table.insert(others, master) end
         else
             for guid, link in pairs(state.slaves) do
-                if link.master == pinGuid then table.insert(targets, getObjectFromGUID(guid)) end
+                if link.master == pinGuid then table.insert(others, guid) end
             end
         end
+
+        local targets = {}
+        for _, guid in ipairs(others) do
+            local pin = getObjectFromGUID(guid)
+            if pin then table.insert(targets, pin) end
+        end
         if #targets > 0 then echoPing(player.color, targets) end
+
+        glowBoard(pinGuid)
+        for _, guid in ipairs(others) do glowBoard(guid) end
         return
     end
 
