@@ -28,7 +28,6 @@ function onLoad(saved_data)
     promise.WaitFrames(35, function()
 
         initializeTableComponents()
-        board_mirror.init()
 
 
         -- Scan and initialize any existing flying tokens
@@ -67,7 +66,14 @@ function onLoad(saved_data)
         })
     end)
 
-    if saved_data then SAVED_DATA = JSON.decode(saved_data) end
+    -- An empty or unreadable save decodes to nil: keep the defaults from config.
+    if saved_data and saved_data ~= "" then
+        local decoded = JSON.decode(saved_data)
+        if type(decoded) == "table" then
+            SAVED_DATA = decoded
+            SAVED_DATA.PLAYER = SAVED_DATA.PLAYER or {}
+        end
+    end
 end
 
 -- Event Handlers for bags
@@ -116,7 +122,6 @@ function onObjectPickUp(player_color, pick_obj)
         flying.onPickUp(pick_obj, player_color)
     end
 
-    board_mirror.onPickUp(pick_obj)
 end
 
 function onObjectDrop(player_color, drop_obj)
@@ -131,28 +136,6 @@ function onObjectDrop(player_color, drop_obj)
         flying.onDrop(drop_obj)
     end
 
-    board_mirror.onDrop(drop_obj, player_color)
-end
-
-function onObjectDestroy(obj)
-    board_mirror.onDestroy(obj)
-end
-
-function onObjectSpawn(obj)
-    board_mirror.onSpawn(obj)
-end
-
-function onObjectRotate(obj, spin, flip, player_color, old_spin, old_flip)
-    board_mirror.onRotate(obj)
-end
-
-function onPlayerPing(player, position, object)
-    board_mirror.onPing(player, position, object)
-end
-
-function boardMirror_registerMaster(params)
-    if not params or not params.guid then return end
-    board_mirror.registerMaster(params.guid)
 end
 
 function resetFlyButton(obj, color)
@@ -209,7 +192,6 @@ end
 function updateFlyingVisibility(params)
     if not params or not params.guid then return end
     flying.updateVisibility(params.guid, params.visible)
-    board_mirror.onVisibilityChanged(params.guid)
 end
 
 function onSave()
@@ -217,3 +199,7 @@ function onSave()
     self.script_state = saved_data
     return self.script_state
 end
+
+-- Modules that hook Global's events themselves. Called last, so the handlers
+-- above already exist and get chained rather than replaced.
+board_mirror.attach()

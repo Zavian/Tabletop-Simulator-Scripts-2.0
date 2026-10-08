@@ -2,7 +2,9 @@
 --
 -- Mirrors tokens tagged movement_measurement from one board onto others, as
 -- flat shadows that follow the token while it is carried. Neither the boards
--- nor the tokens get any script: everything lives here, in Global.
+-- nor the tokens get any script: everything lives here and runs in Global.
+-- main.lua only calls BoardMirror.attach(), which hooks the Global events this
+-- module needs (see Wiring, at the bottom).
 --
 -- Pins. Give any object the script in src/modules/mirror_pin.lua and drop it on
 -- a board: that object is now a master pin and the board a master. Right-click
@@ -895,7 +897,7 @@ local function migrate(old)
 end
 
 ------------------------------------------------------------------------------
--- Entry points (called from main.lua)
+-- Entry points (wired to Global's events by attach())
 ------------------------------------------------------------------------------
 
 function BoardMirror.init()
@@ -1102,6 +1104,46 @@ function BoardMirror.onDestroy(obj)
         last_seen[guid] = nil
         rest_offset[guid] = nil
     end
+end
+
+------------------------------------------------------------------------------
+-- Wiring
+------------------------------------------------------------------------------
+
+-- Hooks a Global function: runs whatever was already defined under that name,
+-- then the handler. main.lua's own handlers keep working untouched.
+local function hook(name, handler)
+    local previous = _G[name]
+    _G[name] = function(...)
+        local result = nil
+        if previous then result = previous(...) end
+        handler(...)
+        return result
+    end
+end
+
+-- Called once from the bottom of main.lua, after its own handlers are defined.
+function BoardMirror.attach()
+    hook("onLoad", function()
+        -- Same delay main.lua gives the table to finish loading.
+        Wait.frames(BoardMirror.init, 35)
+    end)
+    hook("onObjectPickUp", function(player_color, obj) BoardMirror.onPickUp(obj) end)
+    hook("onObjectDrop", function(player_color, obj) BoardMirror.onDrop(obj, player_color) end)
+    hook("onObjectDestroy", function(obj) BoardMirror.onDestroy(obj) end)
+    hook("onObjectSpawn", function(obj) BoardMirror.onSpawn(obj) end)
+    hook("onObjectRotate", function(obj) BoardMirror.onRotate(obj) end)
+    hook("onPlayerPing", function(player, position, object) BoardMirror.onPing(player, position, object) end)
+
+    -- Called by monster tokens through Global.call when their visibility changes.
+    hook("updateFlyingVisibility", function(params)
+        if params and params.guid then BoardMirror.onVisibilityChanged(params.guid) end
+    end)
+
+    -- Called by mirror pins (src/modules/mirror_pin.lua) from their onLoad.
+    hook("boardMirror_registerMaster", function(params)
+        if params and params.guid then BoardMirror.registerMaster(params.guid) end
+    end)
 end
 
 return BoardMirror
