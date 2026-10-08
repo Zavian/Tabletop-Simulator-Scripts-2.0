@@ -302,18 +302,30 @@ local TICK = 0.05
 local SHADOW_THICKNESS = 0.05
 local LABEL_HEIGHT = 0.15
 
--- Pin colors, by CONFIG.palette key.
+-- Pin colors: bright hues, so pins and names read well on dark boards.
 local PIN_COLORS = {
-    "navy", "blue", "aqua", "teal", "purple", "fuchsia", "maroon",
-    "red", "orange", "yellow", "olive", "green", "lime",
+    { name = "red",     hex = "#FF4040" },
+    { name = "orange",  hex = "#FF9A2E" },
+    { name = "yellow",  hex = "#FFE53B" },
+    { name = "lime",    hex = "#B6FF3B" },
+    { name = "green",   hex = "#3BFF6A" },
+    { name = "mint",    hex = "#3BFFC4" },
+    { name = "cyan",    hex = "#3BE8FF" },
+    { name = "sky",     hex = "#3B9DFF" },
+    { name = "blue",    hex = "#5B5BFF" },
+    { name = "violet",  hex = "#A35BFF" },
+    { name = "magenta", hex = "#F03BFF" },
+    { name = "pink",    hex = "#FF5BA8" },
 }
+local PIN_COLOR_BY_NAME = {}
+for _, c in ipairs(PIN_COLORS) do PIN_COLOR_BY_NAME[c.name] = c end
 
 local PLAYER_COLOR = CONFIG.palette.blue.rgb
 local FLIPPED_COLOR = CONFIG.palette.fuchsia.rgb
 
 -- Saved state:
 --   masters[pinGuid] = { board = boardGuid }
---   slaves[pinGuid]  = { master = pinGuid, board = boardGuid, color = PIN_COLORS key }
+--   slaves[pinGuid]  = { master = pinGuid, board = boardGuid, color = PIN_COLORS name }
 --   hidden[boardGuid] = true when that board's pins are hidden
 local state = nil
 
@@ -436,16 +448,24 @@ end
 
 -- A flipped token's shadow is its color mixed halfway with pink, so it stands
 -- out from the ones still face up.
+-- Scales a color up until its strongest channel is full: same hue and
+-- saturation, as bright as it goes. Black and near-black become light gray.
+local function brighten(r, g, b)
+    local top = math.max(r, g, b)
+    if top < 0.05 then return Color(0.9, 0.9, 0.9) end
+    return Color(r / top, g / top, b / top)
+end
+
 local function tokenColor(token)
     local c = token.hasTag(OBJECT_TAGS.player) and PLAYER_COLOR or token.getColorTint()
     if token.is_face_down then
-        return Color(
+        return brighten(
             (c.r + FLIPPED_COLOR.r) / 2,
             (c.g + FLIPPED_COLOR.g) / 2,
             (c.b + FLIPPED_COLOR.b) / 2
         )
     end
-    return Color(c.r, c.g, c.b)
+    return brighten(c.r, c.g, c.b)
 end
 
 local function tokenName(token)
@@ -667,7 +687,7 @@ local function masterColor(masterGuid)
     for i = 1, #masterGuid do
         hash = (hash * 31 + string.byte(masterGuid, i)) % 1000003
     end
-    return PIN_COLORS[(hash % #PIN_COLORS) + 1]
+    return PIN_COLORS[(hash % #PIN_COLORS) + 1].name
 end
 
 -- The first color not taken by the master or by its other slaves.
@@ -676,19 +696,18 @@ local function freeSlaveColor(masterGuid)
     for _, link in pairs(state.slaves) do
         if link.master == masterGuid and link.color then used[link.color] = true end
     end
-    for _, key in ipairs(PIN_COLORS) do
-        if not used[key] then return key end
+    for _, c in ipairs(PIN_COLORS) do
+        if not used[c.name] then return c.name end
     end
-    return PIN_COLORS[1]
+    return PIN_COLORS[1].name
 end
 
 local function colored(key, text)
-    return "[" .. string.sub(CONFIG.palette[key].hex, 2) .. "]" .. text .. "[-]"
+    return "[" .. string.sub(PIN_COLOR_BY_NAME[key].hex, 2) .. "]" .. text .. "[-]"
 end
 
 local function tintPin(pin, key)
-    local c = CONFIG.palette[key].rgb
-    pin.setColorTint(Color(c.r, c.g, c.b))
+    pin.setColorTint(Color.fromHex(PIN_COLOR_BY_NAME[key].hex))
 end
 
 -- Names and tints a master and all its slaves.
@@ -863,7 +882,7 @@ function BoardMirror.init()
     for guid, link in pairs(state.slaves) do
         if getObjectFromGUID(guid) == nil or state.masters[link.master] == nil then
             state.slaves[guid] = nil
-        elseif type(link.color) ~= "string" or CONFIG.palette[link.color] == nil then
+        elseif type(link.color) ~= "string" or PIN_COLOR_BY_NAME[link.color] == nil then
             link.color = nil
             link.color = freeSlaveColor(link.master)
         end
