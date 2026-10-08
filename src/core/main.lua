@@ -138,6 +138,11 @@ function onObjectDestroy(obj)
     board_mirror.onDestroy(obj)
 end
 
+function boardMirror_registerMaster(params)
+    if not params or not params.guid then return end
+    board_mirror.registerMaster(params.guid)
+end
+
 function resetFlyButton(obj, color)
     flying.resetFlyButton(obj, color)
 end

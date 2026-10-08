@@ -4,10 +4,11 @@
 -- ghosts that follow the token while it is carried. Neither the boards nor the
 -- tokens get any script: everything lives here, in Global.
 --
--- Pins. Right-click the table and "Spawn mirror master pin", drop it on a board:
--- that board is now a master. Right-click the master pin and "Spawn slave" or
--- "Spawn shadow slave", drop the slave on another board: tokens on the master
--- board now get a ghost on that board. A master can have any number of slaves,
+-- Pins. Give any object the script in src/misc/mirror_pin.lua and drop it on a
+-- board: that object is now a master pin and the board a master. Right-click
+-- the master pin and "Spawn slave" or "Spawn shadow slave" (a script-free copy
+-- of the master), drop the slave on another board: tokens on the master board
+-- now get a ghost on that board. A master can have any number of slaves,
 -- each with its own color, and a board can carry any number of pins. The board
 -- a pin belongs to is whatever it was dropped on (a ray cast straight down), so
 -- moving a pin to another board re-links it.
@@ -49,7 +50,6 @@ local PALETTE = {
     { name = "Teal",   color = Color(0.10, 0.70, 0.70) },
     { name = "Pink",   color = Color(0.94, 0.42, 0.70) },
 }
-local MASTER_COLOR = Color(0.95, 0.95, 0.95)
 
 -- Saved state:
 --   masters[pinGuid] = { board = boardGuid }
@@ -423,12 +423,10 @@ local function slaveLabel(link)
     return "Mirror slave (" .. mode .. ", " .. paletteColor(link.color).name .. ")"
 end
 
+-- Masters keep their own look; only slaves are named and colored.
 local function stylePin(pin)
     local guid = pin.getGUID()
-    if state.masters[guid] then
-        pin.setName("Mirror master")
-        pin.setColorTint(MASTER_COLOR)
-    elseif state.slaves[guid] then
+    if state.slaves[guid] then
         local link = state.slaves[guid]
         pin.setName(slaveLabel(link))
         pin.setColorTint(paletteColor(link.color).color)
@@ -470,14 +468,23 @@ local function nextColor(masterGuid)
     return 1
 end
 
+-- A slave is a copy of its master without the script, so it cannot register
+-- itself as a master too.
 local function spawnSlave(masterPin, mode)
     local masterGuid = masterPin.getGUID()
-    spawnObject({
-        type = "PlayerPawn",
+    local data = masterPin.getData()
+    data.GUID = nil
+    data.LuaScript = ""
+    data.LuaScriptState = ""
+    data.XmlUI = ""
+    data.Tags = { OBJECT_TAGS.board_mirror_slave }
+    data.Locked = false
+    data.States = nil
+    data.ChildObjects = nil
+    spawnObjectData({
+        data = data,
         position = masterPin.getPosition() + Vector(1.5, 1, 0),
-        sound = false,
         callback_function = function(pin)
-            pin.addTag(OBJECT_TAGS.board_mirror_slave)
             state.slaves[pin.getGUID()] = {
                 master = masterGuid,
                 board = nil,
@@ -573,21 +580,6 @@ addBoardMenu = function(board)
     board.addContextMenuItem("Mirror: show pins", function() setBoardHidden(guid, false) end)
 end
 
-local function spawnMaster(position)
-    spawnObject({
-        type = "PlayerPawn",
-        position = position + Vector(0, 2, 0),
-        sound = false,
-        callback_function = function(pin)
-            pin.addTag(OBJECT_TAGS.board_mirror_master)
-            state.masters[pin.getGUID()] = { board = nil }
-            stylePin(pin)
-            addPinMenu(pin)
-            save()
-        end,
-    })
-end
-
 ------------------------------------------------------------------------------
 -- Entry points (called from main.lua)
 ------------------------------------------------------------------------------
@@ -606,6 +598,12 @@ function BoardMirror.init()
     for guid in pairs(state.masters) do
         if getObjectFromGUID(guid) == nil then state.masters[guid] = nil end
     end
+    -- Objects that got the pin script while Global was not listening.
+    for _, obj in ipairs(getObjectsWithTag(OBJECT_TAGS.board_mirror_master)) do
+        if state.masters[obj.getGUID()] == nil then
+            state.masters[obj.getGUID()] = { board = nil }
+        end
+    end
     for guid, link in pairs(state.slaves) do
         if getObjectFromGUID(guid) == nil or state.masters[link.master] == nil then
             state.slaves[guid] = nil
@@ -616,6 +614,7 @@ function BoardMirror.init()
         local pin = getObjectFromGUID(guid)
         stylePin(pin)
         addPinMenu(pin)
+        if entry.board == nil then placePin(pin) end
         if entry.board then
             local board = getObjectFromGUID(entry.board)
             if board then addBoardMenu(board) end
@@ -626,12 +625,25 @@ function BoardMirror.init()
     for guid, entry in pairs(state.slaves) do restore(guid, entry) end
     save()
 
-    addContextMenuItem("Spawn mirror master pin", function(player_color, position)
-        spawnMaster(Vector(position))
-    end)
-
     -- Let the deleted ghosts finish going before spawning new ones.
     Wait.frames(BoardMirror.syncAll, 2)
+end
+
+-- Called by an object running the mirror pin script, from its onLoad. Before
+-- init() has run this is a no-op: init() finds the pin by its tag instead.
+function BoardMirror.registerMaster(guid)
+    if state == nil then return end
+    local pin = getObjectFromGUID(guid)
+    if pin == nil then return end
+    if state.masters[guid] == nil then
+        state.masters[guid] = { board = nil }
+    end
+    addPinMenu(pin)
+    Wait.condition(function()
+        if pin.isDestroyed() then return end
+        placePin(pin)
+        BoardMirror.syncAll()
+    end, function() return pin.isDestroyed() or pin.resting end, 5)
 end
 
 function BoardMirror.onPickUp(obj)
@@ -657,7 +669,11 @@ function BoardMirror.onDestroy(obj)
     if state == nil or isGhost(obj) then return end
     local guid = obj.getGUID()
     if state.masters[guid] then
-        removeMaster(guid)
+        -- Saving a script on the pin reloads it, which also lands here: only
+        -- remove the master if it has not come back under the same GUID.
+        Wait.time(function()
+            if getObjectFromGUID(guid) == nil then removeMaster(guid) end
+        end, 1)
     elseif state.slaves[guid] then
         state.slaves[guid] = nil
         destroyGhostsOfSlave(guid)
