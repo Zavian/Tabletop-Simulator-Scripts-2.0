@@ -131,7 +131,7 @@ function onObjectDrop(player_color, drop_obj)
         flying.onDrop(drop_obj)
     end
 
-    board_mirror.onDrop(drop_obj)
+    board_mirror.onDrop(drop_obj, player_color)
 end
 
 function onObjectDestroy(obj)

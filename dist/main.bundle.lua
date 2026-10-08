@@ -175,7 +175,7 @@ function onObjectDrop(player_color, drop_obj)
         flying.onDrop(drop_obj)
     end
 
-    board_mirror.onDrop(drop_obj)
+    board_mirror.onDrop(drop_obj, player_color)
 end
 
 function onObjectDestroy(obj)
@@ -261,25 +261,35 @@ __bundle_register("src.core.board_mirror", function(require, _LOADED, __bundle_r
 -- Board Mirror
 --
 -- Mirrors tokens tagged movement_measurement from one board onto others, as
--- ghosts that follow the token while it is carried. Neither the boards nor the
--- tokens get any script: everything lives here, in Global.
+-- flat shadows that follow the token while it is carried. Neither the boards
+-- nor the tokens get any script: everything lives here, in Global.
 --
--- Pins. Give any object the script in src/modules/mirror_pin.lua and drop it on a
--- board: that object is now a master pin and the board a master. Right-click
+-- Pins. Give any object the script in src/modules/mirror_pin.lua and drop it on
+-- a board: that object is now a master pin and the board a master. Right-click
 -- the master pin and "Spawn slave" (a script-free copy of the master), drop the
 -- slave on another board: tokens on the master board now get a shadow on that
 -- board. A master can have any number of slaves, and a board can carry any
--- number of pins. Every master has a color worked out from its GUID, and each
--- of its slaves gets its own: pins are tinted with theirs and named after the
--- other end, "Master (red, teal)" and "Slave (navy)". The board
--- a pin belongs to is whatever it was dropped on (a ray cast straight down), so
--- moving a pin to another board re-links it.
+-- number of pins. The board a pin belongs to is the first locked object under it
+-- (a ray cast straight down), so moving a pin to another board re-links it.
+-- Every master has a color worked out from its GUID and each of its slaves gets
+-- its own: pins are tinted with theirs and named after the other end,
+-- "Master (red, teal)" and "Slave (navy)".
 --
--- Shadows. A flat disc the size of the token's footprint, in the token's color:
--- blue for player tokens, the token's own tint (enemy, ally, neutral) for the
--- rest. It carries the token's name, is locked, not interactable and has its
--- colliders turned off, so nothing can grab or bump it. A shadow exists while
--- its token is over the master board and goes away when the token leaves it.
+-- Shadows. A flat disc the size of the token's footprint, in the token's color
+-- brought to full brightness: blue for player tokens, the token's own tint
+-- (enemy, ally, neutral) for the rest, mixed with pink when it is face down. It
+-- carries the token's name, is locked, not interactable and has its colliders
+-- turned off. It exists while its token is over the master board, and is
+-- highlighted in the holder's color while the token is carried. A slave can be
+-- set to "GM only", hiding its shadows from everyone but Black.
+--
+-- Pings. Pinging a shadow pings its token and the other way round; pinging a
+-- slave pin pings its master and the other way round.
+--
+-- Updates. Picking up, dropping, flipping or spinning a token follows it every
+-- TICK until it settles. A HEARTBEAT catches the rest: tokens moved, spawned,
+-- renamed or retinted by scripts, boards that moved, and stray shadows brought
+-- back by undo.
 --
 -- Mapping. A position is taken into the master board's local space and back out
 -- of the slave board's, so the two boards can sit anywhere, at any rotation and
@@ -287,7 +297,7 @@ __bundle_register("src.core.board_mirror", function(require, _LOADED, __bundle_r
 -- raised by however far the token was resting above the master board's surface
 -- (stairs, platforms inside a diorama).
 --
--- Links are kept in SAVED_DATA.BOARD_MIRROR, keyed by pin GUID. Ghosts are not
+-- Links are kept in SAVED_DATA.BOARD_MIRROR, keyed by pin GUID. Shadows are not
 -- saved: on load the old ones are deleted and rebuilt.
 
 local utils = require("src.core.utils")
@@ -301,6 +311,7 @@ function boardMirror_noop() end
 local TICK = 0.05
 local SHADOW_THICKNESS = 0.05
 local LABEL_HEIGHT = 0.15
+local HEARTBEAT = 1
 
 -- Pin colors: bright hues, so pins and names read well on dark boards.
 local PIN_COLORS = {
@@ -325,18 +336,22 @@ local FLIPPED_COLOR = CONFIG.palette.fuchsia.rgb
 
 -- Saved state:
 --   masters[pinGuid] = { board = boardGuid }
---   slaves[pinGuid]  = { master = pinGuid, board = boardGuid, color = PIN_COLORS name }
+--   slaves[pinGuid]  = { master = pinGuid, board = boardGuid, color = PIN_COLORS name,
+--                        gm_only = true when only Black sees its shadows }
 --   hidden[boardGuid] = true when that board's pins are hidden
 local state = nil
 
 -- Runtime only:
 --   ghosts[tokenGuid][slavePinGuid] = { obj = Object|nil, name = string, color = hex string,
---                                       highlight = player color it is highlighted in }
+--                                       highlight = player color it is highlighted in,
+--                                       scale = token scale it was sized for }
 --   timers[tokenGuid] = Wait id of the follow loop
 --   rest_offset[tokenGuid] = how far the token last rested above its master board
+--   last_seen[guid] = what a token or board looked like when last synced
 local ghosts = {}
 local timers = {}
 local rest_offset = {}
+local last_seen = {}
 local board_menus = {}
 local echoing = false
 
@@ -369,18 +384,6 @@ local function castDown(origin)
     }) or {}
     table.sort(hits, function(a, b) return a.distance < b.distance end)
     return hits
-end
-
--- Every board that has at least one pin on it.
-local function knownBoards()
-    local boards = {}
-    for _, m in pairs(state.masters) do
-        if m.board then boards[m.board] = true end
-    end
-    for _, s in pairs(state.slaves) do
-        if s.board then boards[s.board] = true end
-    end
-    return boards
 end
 
 -- The board a pin sits on: the first locked object under it that is not a
@@ -446,8 +449,6 @@ local function disableColliders(obj)
     end)
 end
 
--- A flipped token's shadow is its color mixed halfway with pink, so it stands
--- out from the ones still face up.
 -- Scales a color up until its strongest channel is full: same hue and
 -- saturation, as bright as it goes. Black and near-black become light gray.
 local function brighten(r, g, b)
@@ -456,6 +457,8 @@ local function brighten(r, g, b)
     return Color(r / top, g / top, b / top)
 end
 
+-- A flipped token's shadow is its color mixed halfway with pink, so it stands
+-- out from the ones still face up.
 local function tokenColor(token)
     local c = token.hasTag(OBJECT_TAGS.player) and PLAYER_COLOR or token.getColorTint()
     if token.is_face_down then
@@ -569,7 +572,7 @@ end
 local function spawnGhost(token, slaveGuid, masterBoard, slaveBoard)
     local tokenGuid = token.getGUID()
     local factor = scaleFactor(masterBoard, slaveBoard)
-    local g = { obj = nil, name = nil, color = nil, bottom = 0 }
+    local g = { obj = nil, name = nil, color = nil, bottom = 0, scale = token.getScale().x }
     ghosts[tokenGuid] = ghosts[tokenGuid] or {}
     ghosts[tokenGuid][slaveGuid] = g
 
@@ -589,6 +592,10 @@ local function spawnGhost(token, slaveGuid, masterBoard, slaveBoard)
             obj.interactable = false
             obj.use_gravity = false
             disableColliders(obj)
+            local link = state.slaves[slaveGuid]
+            if link and link.gm_only then
+                obj.setInvisibleTo(utils.hideFromPlayersArray())
+            end
 
             -- Size the disc to the token's footprint.
             local tb = token.getBoundsNormalized()
@@ -628,6 +635,11 @@ function BoardMirror.sync(token)
                 if slaveBoard then
                     wanted[slaveGuid] = true
                     local g = ghosts[tokenGuid] and ghosts[tokenGuid][slaveGuid]
+                    -- A shadow's size is set when it spawns: respawn it on a rescale.
+                    if g and math.abs(g.scale - token.getScale().x) > 0.001 then
+                        destroyGhost(tokenGuid, slaveGuid)
+                        g = nil
+                    end
                     if g == nil then
                         spawnGhost(token, slaveGuid, masterBoard, slaveBoard)
                     else
@@ -658,7 +670,21 @@ local function stopFollowing(tokenGuid)
     end
 end
 
--- Follows a token every TICK while it is held or still settling.
+-- What a token looks like, as far as its shadows care.
+local function tokenSignature(token)
+    local p, r = token.getPosition(), token.getRotation()
+    return string.format("%.2f %.2f %.2f %.0f %.0f %.0f %.3f %s %s %s",
+        p.x, p.y, p.z, r.x, r.y, r.z, token.getScale().x,
+        token.getColorTint():toHex(), tostring(token.is_face_down), token.getName())
+end
+
+local function boardSignature(board)
+    local p, r = board.getPosition(), board.getRotation()
+    return string.format("%.2f %.2f %.2f %.0f %.0f %.0f %.3f",
+        p.x, p.y, p.z, r.x, r.y, r.z, board.getScale().x)
+end
+
+-- Follows a token every TICK while it is held, falling or smooth-moving.
 local function follow(token)
     local tokenGuid = token.getGUID()
     if timers[tokenGuid] then return end
@@ -669,10 +695,53 @@ local function follow(token)
             return
         end
         BoardMirror.sync(token)
-        if token.held_by_color == nil and token.resting then
+        if token.held_by_color == nil and token.resting and not token.isSmoothMoving() then
             stopFollowing(tokenGuid)
+            last_seen[tokenGuid] = tokenSignature(token)
         end
     end, TICK, -1)
+end
+
+-- Once a second, catches what the pick-up/drop events miss: tokens moved,
+-- spawned, renamed or retinted by scripts, boards that were moved, and shadows
+-- brought back by undo. Only compares cheap signatures; tokens that changed are
+-- handed to follow().
+local function heartbeat()
+    if state == nil or next(state.masters) == nil then return end
+
+    local boardMoved = false
+    local boards = {}
+    for _, entry in pairs(state.masters) do if entry.board then boards[entry.board] = true end end
+    for _, entry in pairs(state.slaves) do if entry.board then boards[entry.board] = true end end
+    for guid in pairs(boards) do
+        local board = getObjectFromGUID(guid)
+        if board then
+            local sig = boardSignature(board)
+            if last_seen[guid] ~= nil and last_seen[guid] ~= sig then boardMoved = true end
+            last_seen[guid] = sig
+        end
+    end
+
+    for _, token in ipairs(getObjectsWithTag(OBJECT_TAGS.movement_measurement)) do
+        local guid = token.getGUID()
+        if not isGhost(token) and timers[guid] == nil then
+            local sig = tokenSignature(token)
+            if boardMoved or last_seen[guid] ~= sig then
+                last_seen[guid] = sig
+                follow(token)
+            end
+        end
+    end
+
+    local known = {}
+    for _, byToken in pairs(ghosts) do
+        for _, g in pairs(byToken) do
+            if g.obj and not g.obj.isDestroyed() then known[g.obj.getGUID()] = true end
+        end
+    end
+    for _, obj in ipairs(getObjectsWithTag(OBJECT_TAGS.board_mirror_ghost)) do
+        if not known[obj.getGUID()] then obj.destruct() end
+    end
 end
 
 ------------------------------------------------------------------------------
@@ -725,7 +794,10 @@ local function refreshPins(masterGuid)
         table.insert(names, colored(link.color, link.color))
         local pin = getObjectFromGUID(guid)
         if pin then
-            pin.setName(colored(link.color, "Slave") .. " (" .. colored(own, own) .. ")")
+            local suffix = link.gm_only and " - GM only" or ""
+            pin.setName(colored(link.color, "Slave") .. " (" .. colored(own, own) .. ")" .. suffix)
+            pin.setDescription("Board mirror slave. Drop it on the board the "
+                .. colored(own, own) .. " master's tokens should show up on.")
             tintPin(pin, link.color)
         end
     end
@@ -733,6 +805,8 @@ local function refreshPins(masterGuid)
     local master = getObjectFromGUID(masterGuid)
     if master then
         master.setName(colored(own, "Master") .. " (" .. table.concat(names, ", ") .. ")")
+        master.setDescription("Board mirror master. Drop it on a board, then right-click "
+            .. "> Spawn slave and drop the slave on the board to mirror onto.")
         tintPin(master, own)
     end
 end
@@ -748,12 +822,29 @@ local function applyHidden(pin, hidden)
     end
 end
 
-local function placePin(pin)
+local function boardLabel(board)
+    local name = board.getName()
+    if name == nil or name == "" then return "board " .. board.getGUID() end
+    return name
+end
+
+-- Works out which board a pin is on. With a player color, tells that player
+-- when the pin's board changed, or that it found none.
+local function placePin(pin, player_color)
     local board = boardUnderPin(pin)
     local guid = pin.getGUID()
     local entry = state.masters[guid] or state.slaves[guid]
     if not entry then return end
+    local before = entry.board
     entry.board = board and board.getGUID() or nil
+    if player_color then
+        local what = state.masters[guid] and "Master" or "Slave"
+        if board == nil then
+            utils.warning(what .. " pin is not on a board: drop it on a locked board to link it.", player_color)
+        elseif entry.board ~= before then
+            utils.success(what .. " pin linked to " .. boardLabel(board) .. ".", player_color)
+        end
+    end
     if board then
         addBoardMenu(board)
         if state.hidden[entry.board] then applyHidden(pin, true) end
@@ -790,6 +881,18 @@ local function spawnSlave(masterPin)
     })
 end
 
+local function setGmOnly(slaveGuid, gm_only)
+    local link = state.slaves[slaveGuid]
+    if not link then return end
+    link.gm_only = gm_only or nil
+    destroyGhostsOfSlave(slaveGuid)
+    refreshPins(link.master)
+    local pin = getObjectFromGUID(slaveGuid)
+    if pin then addPinMenu(pin) end
+    save()
+    BoardMirror.syncAll()
+end
+
 local function removeSlave(slaveGuid)
     local link = state.slaves[slaveGuid]
     if not link then return end
@@ -820,6 +923,11 @@ addPinMenu = function(pin)
             end
         end)
     elseif state.slaves[guid] then
+        if state.slaves[guid].gm_only then
+            pin.addContextMenuItem("Shadows: show to all", function() setGmOnly(guid, false) end)
+        else
+            pin.addContextMenuItem("Shadows: GM only", function() setGmOnly(guid, true) end)
+        end
         pin.addContextMenuItem("Unlink", function() removeSlave(guid) end)
     end
 end
@@ -905,6 +1013,10 @@ function BoardMirror.init()
 
     -- Let the deleted ghosts finish going before spawning new ones.
     Wait.frames(BoardMirror.syncAll, 2)
+
+    if BoardMirror.heartbeat_id == nil then
+        BoardMirror.heartbeat_id = Wait.time(heartbeat, HEARTBEAT, -1)
+    end
 end
 
 -- Called by an object running the mirror pin script, from its onLoad. Before
@@ -930,7 +1042,7 @@ function BoardMirror.onPickUp(obj)
     if isTracked(obj) then follow(obj) end
 end
 
-function BoardMirror.onDrop(obj)
+function BoardMirror.onDrop(obj, player_color)
     if state == nil then return end
     if isTracked(obj) then
         follow(obj)
@@ -938,7 +1050,7 @@ function BoardMirror.onDrop(obj)
         -- Re-detect the board once the pin has landed.
         Wait.condition(function()
             if obj.isDestroyed() then return end
-            placePin(obj)
+            placePin(obj, player_color)
             BoardMirror.syncAll()
         end, function() return obj.isDestroyed() or obj.resting end, 5)
     end
@@ -969,16 +1081,20 @@ local function echoPing(player_color, targets)
     Wait.frames(function() echoing = false end, 10)
 end
 
--- The pin a ping landed on, if any.
+-- The pin a ping landed on, if any. Hidden pins do not count.
 local function pingedPin(position, object)
-    if object and (state.masters[object.getGUID()] or state.slaves[object.getGUID()]) then
+    local function visible(guid)
+        local entry = state.masters[guid] or state.slaves[guid]
+        return entry and not (entry.board and state.hidden[entry.board])
+    end
+    if object and visible(object.getGUID()) then
         return object.getGUID()
     end
     for guid in pairs(state.masters) do
-        if pingHits(position, getObjectFromGUID(guid)) then return guid end
+        if visible(guid) and pingHits(position, getObjectFromGUID(guid)) then return guid end
     end
     for guid in pairs(state.slaves) do
-        if pingHits(position, getObjectFromGUID(guid)) then return guid end
+        if visible(guid) and pingHits(position, getObjectFromGUID(guid)) then return guid end
     end
     return nil
 end
@@ -1049,12 +1165,16 @@ function BoardMirror.onDestroy(obj)
             if getObjectFromGUID(guid) == nil then removeMaster(guid) end
         end, 1)
     elseif state.slaves[guid] then
+        local master = state.slaves[guid].master
         state.slaves[guid] = nil
         destroyGhostsOfSlave(guid)
+        refreshPins(master)
         save()
-    elseif ghosts[guid] then
+    else
         stopFollowing(guid)
         destroyGhostsOfToken(guid)
+        last_seen[guid] = nil
+        rest_offset[guid] = nil
     end
 end
 
