@@ -1,142 +1,111 @@
 --[[StartXML
 <Defaults>
-    <!-- General Defaults -->
-    <Text color="#F3F4F6" fontStyle="Bold" alignment="MiddleCenter" />
-    <Button color="#272A34" textColor="#FFFFFF" hoverColor="#3B3E4D" pressColor="#1A1C23" fontStyle="Bold" />
+    <!-- Swiss Minimalist Defaults -->
+    <Text color="#F8FAFC" fontStyle="Bold" alignment="MiddleCenter" />
+    <Button color="#1E293B" textColor="#F1F5F9" hoverColor="#334155" pressColor="#0F172A" fontStyle="Bold" outline="#475569" outlineSize="1 1" />
     <Panel color="Transparent" />
 
-    <!-- Custom Class Defaults -->
-    <Text class="stat-label" fontSize="11" color="#9CA3AF" />
-    <Text class="sub-label" fontSize="9" color="#6B7280" />
+    <!-- Class Defaults -->
+    <Text class="swiss-label" fontSize="10" color="#94A3B8" alignment="MiddleLeft" />
+    <Button class="swiss-step" width="28" height="28" fontSize="16" color="#1E293B" hoverColor="#334155" textColor="#F8FAFC" outline="#334155" outlineSize="1 1" />
+    <Button class="swiss-gear" width="26" height="26" fontSize="12" color="#1E293B" hoverColor="#475569" textColor="#CBD5E1" outline="#334155" outlineSize="1 1" />
 </Defaults>
 
-<!-- Main Container Panel -->
-<Panel position="0 300 -50" width="560" height="440" color="#0F1015F2" padding="12" rectAlignment="MiddleCenter" id="StatsPanel">
-    <VerticalLayout spacing="8">
+<!-- Main Container -->
+<Panel position="0 300 -50" width="560" height="400" color="#0A0E17FA" outline="#334155" outlineSize="1 1" padding="12" rectAlignment="MiddleCenter" id="StatsPanel">
+    <VerticalLayout spacing="4">
         
-        <!-- ======================================================= -->
-        <!-- 1. TOP STATS (EVASION & ARMOR SCORE) - 2 Column Grid   -->
-        <!-- ======================================================= -->
+        <!-- 1. DEFENSE STATS -->
         <GridLayout cellSize="263 120" spacing="10 0" height="120">
             
-            <!-- Evasion Box -->
-            <VerticalLayout color="#181A20" outline="#374151" outlineSize="1 1" padding="6" spacing="2">
-                <Text text="EVASION" class="stat-label" height="16" wrapText="false" />
-                
-                <!-- Text element stays light purple and handles click events -->
-                <Text id="evasion" text="0" color="#A78BFA" fontSize="28" fontStyle="Bold" height="46" />
-                
-                <Text text="Click value to edit" class="sub-label" height="14" wrapText="false" />
+            <!-- Evasion -->
+            <VerticalLayout color="#0F172A" outline="#334155" outlineSize="1 1" padding="6" spacing="2">
+                <HorizontalLayout height="18">
+                    <Text text="EVASION" class="swiss-label" color="#CBD5E1" />
+                    <Button id="edit_evasion" text="EDIT" width="40" height="18" fontSize="8" color="#1E293B" textColor="#F8FAFC" outline="#475569" outlineSize="1 1" />
+                </HorizontalLayout>
+                <Text id="evasion" text="10" color="#FFFFFF" fontSize="32" fontStyle="Bold" height="44" />
             </VerticalLayout>
 
-            <!-- Armor Score Box -->
-            <VerticalLayout color="#181A20" outline="#374151" outlineSize="1 1" padding="6" spacing="2">
-                <!-- Header -->
-                <HorizontalLayout height="20">
-                    <Text text="ARMOR SCORE" class="stat-label" alignment="MiddleLeft" wrapText="false" />
-                    <Button id="set_max_armor" text="SET MAX" width="60" fontSize="9" height="18" />
+            <!-- Armor -->
+            <VerticalLayout color="#0F172A" outline="#334155" outlineSize="1 1" padding="6" spacing="2">
+                <HorizontalLayout height="18">
+                    <Text text="ARMOR SCORE" class="swiss-label" color="#CBD5E1" />
+                    <Button id="set_max_armor" text="SET MAX" width="54" height="18" fontSize="8" color="#1E293B" textColor="#F8FAFC" outline="#475569" outlineSize="1 1" />
                 </HorizontalLayout>
 
-                <!-- Score Controls -->
-                <HorizontalLayout height="34" spacing="6">
-                    <Button id="lose_armor" text="-" width="30" fontSize="16" />
-                    <Text id="armor_display" text="0" color="#60A5FA" fontSize="24" fontStyle="Bold" />
-                    <Button id="gain_armor" text="+" width="30" fontSize="16" />
+                <HorizontalLayout height="32" spacing="6" childAlignment="MiddleCenter">
+                    <Button id="lose_armor" text="-" class="swiss-step" />
+                    <Text id="armor_display" text="2 / 6" color="#FFFFFF" fontSize="22" fontStyle="Bold" width="90" />
+                    <Button id="gain_armor" text="+" class="swiss-step" />
                 </HorizontalLayout>
 
-                <!-- Grid wraps armor shields into max 9 icons per row (up to 18 total) -->
-                <GridLayout id="armor_slots" cellSize="18 18" spacing="3 3" constraint="FixedColumnCount" constraintCount="9" childAlignment="MiddleCenter" height="44" />
+                <GridLayout id="armor_slots" cellSize="18 18" spacing="3 3" constraint="FixedColumnCount" constraintCount="9" childAlignment="MiddleCenter" height="44" color="#030712" outline="#1E293B" outlineSize="1 1" />
             </VerticalLayout>
 
         </GridLayout>
 
-        <!-- ======================================================= -->
-        <!-- 2. DAMAGE THRESHOLDS - 3 Column Grid                    -->
-        <!-- ======================================================= -->
+        <!-- 2. DAMAGE THRESHOLDS -->
         <GridLayout cellSize="172 70" spacing="10 0" height="70">
             
-            <!-- Minor Damage -->
-            <VerticalLayout color="#181A20" outline="#374151" outlineSize="1 1" padding="4" spacing="1">
-                <Text text="MINOR DAMAGE" fontSize="9" color="#9CA3AF" height="14" wrapText="false" />
-                
-                <!-- Dynamic Minor Damage text updated via Lua -->
-                <Text id="minor_damage_display" text="1 - 5" fontSize="16" color="#FFFFFF" fontStyle="Bold" height="20" wrapText="false" />
-                
-                <Text text="Mark 1 HP" class="sub-label" color="#D1D5DB" height="12" wrapText="false" />
+            <!-- Minor -->
+            <VerticalLayout color="#0F172A" outline="#334155" outlineSize="1 1" padding="4" spacing="1">
+                <Text text="MINOR DAMAGE" fontSize="9" color="#94A3B8" height="14" />
+                <Text id="minor_damage_display" text="1 - 6" fontSize="16" color="#FFFFFF" fontStyle="Bold" height="20" />
+                <Text text="MARK 1 HP" fontSize="8" color="#64748B" height="12" />
             </VerticalLayout>
 
-            <!-- Major Damage (Clickable) -->
-            <VerticalLayout color="#181A20" outline="#374151" outlineSize="1 1" padding="4" spacing="1">
-                <Text text="MAJOR DAMAGE" fontSize="9" color="#FBBF24" height="14" wrapText="false" />
-                
-                <!-- Text element stays gold (#FBBF24) and handles click events -->
-                <Text id="first_threshold" text="0" color="#FBBF24" fontSize="20" fontStyle="Bold" height="22" />
-                
-                <Text text="Mark 2 HP" class="sub-label" color="#D1D5DB" height="12" wrapText="false" />
+            <!-- Major -->
+            <VerticalLayout color="#484127" outline="#FDE68A" outlineSize="1 1" padding="4" spacing="1">
+                <Text text="MAJOR DAMAGE" fontSize="9" color="#FCD34D" height="14" />
+                <Text id="first_threshold" text="7+" color="#FDE68A" fontSize="20" fontStyle="Bold" height="22" />
+                <Text text="MARK 2 HP" fontSize="8" color="#F59E0B" height="12" />
             </VerticalLayout>
 
-            <!-- Severe Damage (Clickable) -->
-            <VerticalLayout color="#181A20" outline="#374151" outlineSize="1 1" padding="4" spacing="1">
-                <Text text="SEVERE DAMAGE" fontSize="9" color="#EF4444" height="14" wrapText="false" />
-                
-                <!-- Text element stays red (#EF4444) and handles click events -->
-                <Text id="second_threshold" text="0" color="#EF4444" fontSize="20" fontStyle="Bold" height="22" />
-                
-                <Text text="Mark 3 HP" class="sub-label" color="#D1D5DB" height="12" wrapText="false" />
+            <!-- Severe -->
+            <VerticalLayout color="#442D2D" outline="#FCA5A5" outlineSize="1 1" padding="4" spacing="1">
+                <Text text="SEVERE DAMAGE" fontSize="9" color="#FCA5A5" height="14" />
+                <Text id="second_threshold" text="14+" color="#FECACA" fontSize="20" fontStyle="Bold" height="22" />
+                <Text text="MARK 3 HP" fontSize="8" color="#EF4444" height="12" />
             </VerticalLayout>
 
         </GridLayout>
 
-        <!-- ======================================================= -->
-        <!-- 3. RESOURCE TRACKERS (HP, STRESS, HOPE)                 -->
-        <!-- ======================================================= -->
+        <!-- 3. RESOURCE WELLS -->
         <VerticalLayout spacing="6">
             
-            <!-- HP Tracker Row -->
-            <HorizontalLayout height="44" color="#181A20" outline="#374151" outlineSize="1 1" padding="4" spacing="6">
-                <Button id="set_max_hp" text="⚙" width="28" fontSize="12" color="#374151" hoverColor="#4B5563" />
-                <Text text="HP" width="55" alignment="MiddleLeft" wrapText="false" fontSize="13" color="#EF4444" />
-                <Button id="suffer_hp" width="32" text="-" fontSize="18" />
-                
-                <GridLayout id="hp" cellSize="22 22" spacing="2 2" constraint="FixedRowCount" constraintCount="1" childAlignment="MiddleCenter" height="28" color="#111827" />
-                
-                <Button id="recover_hp" width="32" text="+" fontSize="18" />
+            <!-- HP -->
+            <HorizontalLayout height="44" color="#0F172A" outline="#334155" outlineSize="1 1" padding="4" spacing="6" childAlignment="MiddleLeft">
+                <Button id="set_max_hp" text="⚙" class="swiss-gear" />
+                <Text text="HIT POINTS" width="65" alignment="MiddleLeft" wrapText="false" fontSize="11" color="#F87171" fontStyle="Bold" />
+                <Button id="suffer_hp" text="-" class="swiss-step" />
+                <GridLayout id="hp" cellSize="22 22" spacing="2 2" constraint="FixedRowCount" constraintCount="1" childAlignment="MiddleCenter" height="28" color="#030712" outline="#1E293B" outlineSize="1 1" />
+                <Button id="recover_hp" text="+" class="swiss-step" />
             </HorizontalLayout>
 
-            <!-- Stress Tracker Row -->
-            <HorizontalLayout height="44" color="#181A20" outline="#374151" outlineSize="1 1" padding="4" spacing="6">
-                <Button id="set_max_stress" text="⚙" width="28" fontSize="12" color="#374151" hoverColor="#4B5563" />
-                <Text text="STRESS" width="55" alignment="MiddleLeft" wrapText="false" fontSize="11" color="#F59E0B" />
-                <Button id="suffer_stress" width="32" text="-" fontSize="18" />
-                
-                <GridLayout id="stress" cellSize="22 22" spacing="2 2" constraint="FixedRowCount" constraintCount="1" childAlignment="MiddleCenter" height="28" color="#111827" />
-                
-                <Button id="recover_stress" width="32" text="+" fontSize="18" />
+            <!-- Stress -->
+            <HorizontalLayout height="44" color="#0F172A" outline="#334155" outlineSize="1 1" padding="4" spacing="6" childAlignment="MiddleLeft">
+                <Button id="set_max_stress" text="⚙" class="swiss-gear" />
+                <Text text="STRESS" width="65" alignment="MiddleLeft" wrapText="false" fontSize="11" color="#FBBF24" fontStyle="Bold" />
+                <Button id="suffer_stress" text="-" class="swiss-step" />
+                <GridLayout id="stress" cellSize="22 22" spacing="2 2" constraint="FixedRowCount" constraintCount="1" childAlignment="MiddleCenter" height="28" color="#030712" outline="#1E293B" outlineSize="1 1" />
+                <Button id="recover_stress" text="+" class="swiss-step" />
             </HorizontalLayout>
 
-            <!-- Hope Tracker Row -->
-            <HorizontalLayout height="44" color="#181A20" outline="#374151" outlineSize="1 1" padding="4" spacing="6">
-                <Button id="set_max_hope" text="⚙" width="28" fontSize="12" color="#374151" hoverColor="#4B5563" />
-                <Text text="HOPE" width="55" alignment="MiddleLeft" wrapText="false" fontSize="12" color="#3B82F6" />
-                <Button id="lose_hope" width="32" text="-" fontSize="18" />
-                
-                <GridLayout id="hope" cellSize="24 24" spacing="4 2" constraint="FixedRowCount" constraintCount="1" childAlignment="MiddleCenter" height="28" color="#111827">
-                    <Image id="hope_1" image="https://steamusercontent-a.akamaihd.net/ugc/12670953746498142696/BE3FF12AC9766F669C026E325E3A14FB21FAC75C/" />
-                    <Image id="hope_2" image="https://steamusercontent-a.akamaihd.net/ugc/12670953746498142696/BE3FF12AC9766F669C026E325E3A14FB21FAC75C/" />
-                    <Image id="hope_3" image="https://steamusercontent-a.akamaihd.net/ugc/12670953746498142696/BE3FF12AC9766F669C026E325E3A14FB21FAC75C/" />
-                    <Image id="hope_4" image="https://steamusercontent-a.akamaihd.net/ugc/12670953746498142696/BE3FF12AC9766F669C026E325E3A14FB21FAC75C/" />
-                    <Image id="hope_5" image="https://steamusercontent-a.akamaihd.net/ugc/12708366135666346318/BB64E4C4F488D80BE6E4F71C3338027600E499AF/" />
-                    <Image id="hope_6" image="https://steamusercontent-a.akamaihd.net/ugc/12708366135666346318/BB64E4C4F488D80BE6E4F71C3338027600E499AF/" />
-                </GridLayout>
-                
-                <Button id="gain_hope" width="32" text="+" fontSize="18" />
+            <!-- Hope -->
+            <HorizontalLayout height="44" color="#0F172A" outline="#334155" outlineSize="1 1" padding="4" spacing="6" childAlignment="MiddleLeft">
+                <Button id="set_max_hope" text="⚙" class="swiss-gear" />
+                <Text text="HOPE" width="65" alignment="MiddleLeft" wrapText="false" fontSize="11" color="#60A5FA" fontStyle="Bold" />
+                <Button id="lose_hope" text="-" class="swiss-step" />
+                <GridLayout id="hope" cellSize="22 22" spacing="2 2" constraint="FixedRowCount" constraintCount="1" childAlignment="MiddleCenter" height="28" color="#030712" outline="#1E293B" outlineSize="1 1" />
+                <Button id="gain_hope" text="+" class="swiss-step" />
             </HorizontalLayout>
 
         </VerticalLayout>
 
     </VerticalLayout>
 </Panel>
-StopXML--xml]]
+StopXML--]]
 require("src.data.config")
 
 local utils = require("src.core.utils")
@@ -144,17 +113,34 @@ local promise = require("src.core.promise")
 
 local imageAssets = {
     armor = {
-        empty = "https://steamusercontent-a.akamaihd.net/ugc/9694915526965512541/CF069EC63EA00DC557F7F7789824FD2DF7C01967/",
-        filled = "https://steamusercontent-a.akamaihd.net/ugc/2426949702261775967/768DF5E97CB1FBE314C632B9FFDEB2D433A39690/",
+        useColor = false,
+        empty = "https://steamusercontent-a.akamaihd.net/ugc/14703946279316053304/9CBA4489042257736865EECEB3169AA4DF44C969/",
+        filled = "https://steamusercontent-a.akamaihd.net/ugc/14796930385077024339/7E84D6CDFFBAE9FD7391FDCFF72A04F07575A81A/",
         color = {
             empty = "#000000",
             filled = "#8796F6"
         }
     },
     hope = {
-        empty = "https://steamusercontent-a.akamaihd.net/ugc/12708366135666346318/BB64E4C4F488D80BE6E4F71C3338027600E499AF/",
-        filled = "https://steamusercontent-a.akamaihd.net/ugc/12670953746498142696/BE3FF12AC9766F669C026E325E3A14FB21FAC75C/"
+        empty = "https://steamusercontent-a.akamaihd.net/ugc/12711628340321279551/7FB25DE24927C7013C51155B4920788787794290/",
+        filled = "https://steamusercontent-a.akamaihd.net/ugc/9553207623171576974/8C777BB56569223B78913805E39BC41FB84E6EFC/"
+    },
+    hp = {
+        filled = "https://steamusercontent-a.akamaihd.net/ugc/17692463545472723776/FDCF6A7BD047FF0FE95D7B18C1D742804F096322/",
+        empty = "https://steamusercontent-a.akamaihd.net/ugc/17933638928571452076/35B105A67D9B48031480BC45601CBB3775101C52/"
+    },
+    stress = {
+        filled = "https://steamusercontent-a.akamaihd.net/ugc/17766890096207944889/BE4260799C63669EC0D532AF8AFB372B5C3671B8/",
+        empty = "https://steamusercontent-a.akamaihd.net/ugc/17169108119283629613/E491D3B5B4EF77B2F44E1CFABF3CA2B17009431C/"
     }
+}
+
+local _defaults = {
+    max_hope = 6,
+    max_hp = 12,
+    max_stress = 12,
+    max_armor = 18,
+    max_evasion = 25
 }
 
 local linked = nil
@@ -175,6 +161,7 @@ function onLoad()
 
         self.UI.setAttribute("set_max_hp", "onClick", guid .. "/UI_SetVariable(max_hp)")
         self.UI.setAttribute("set_max_stress", "onClick", guid .. "/UI_SetVariable(max_stress)")
+        self.UI.setAttribute("set_max_hope", "onClick", guid .. "/UI_SetVariable(max_hope)")
         self.UI.setAttribute("first_threshold", "onClick", guid .. "/UI_SetVariable(first_threshold)")
         self.UI.setAttribute("second_threshold", "onClick", guid .. "/UI_SetVariable(second_threshold)")
         self.UI.setAttribute("evasion", "onClick", guid .. "/UI_SetVariable(evasion)")
@@ -190,7 +177,7 @@ function onLoad()
         -- self.UI.hide("ConditionMenu")
         -- self.UI.hide("ReminderMenu")
 
-        -- hidePanel("StatsPanel")
+        hidePanel("StatsPanel")
 
     end, 20)
 
@@ -211,6 +198,32 @@ function onLoad()
     )
 end
 
+function loadSavedData()
+    local data = utils.getData(self)
+    if not data then return end
+
+    -- Re-render resource grids if max values exist
+    if data.max_hp then
+        Injector_setMaxHP(data.max_hp, nil, data.hp or data.max_hp)
+    end
+    if data.max_stress then
+        Injector_setMaxStress(data.max_stress, nil, data.stress or data.max_stress)
+    end
+    if data.max_armor then
+        Injector_setMaxArmor(data.max_armor, nil, data.armor or data.max_armor)
+    end
+    if data.max_hope then
+        Injector_setMaxHope(data.max_hope, nil, data.hope or 0)
+    else
+        setHope(data.hope or 0)
+    end
+
+    -- Restore text displays
+    setThresholds(data.first_threshold or 0, data.second_threshold or 0)
+    setEvasion(data.evasion or 0)
+    setArmorDisplay(data.armor or data.max_armor or 0)
+end
+
 function ClickLink(_, player_color)
     local data = utils.getData(self)
 
@@ -227,9 +240,7 @@ function ClickLink(_, player_color)
 
     if showing_ui == false then
         showPanel("StatsPanel")
-        setThresholds(data.first_threshold or 0, data.second_threshold or 0)
-        setEvasion(data.evasion or 0)
-        setArmorDisplay(data.armor or data.max_armor or 0)
+        loadSavedData()
         showing_ui = true
         utils.pingObject(player_color, data.token)
     end
@@ -246,9 +257,9 @@ function InjectMini(obj_guid)
 }
 
 local images = {
-    hp = "https://steamusercontent-a.akamaihd.net/ugc/10494050456455959184/B2057166B19BAE387F62C851A6404592248EB3A1/",
-    stress = "https://steamusercontent-a.akamaihd.net/ugc/15261052138615878051/6A2F452DCA95EDA5CDD8FD82EC58F4B286AA585B/",
-    armor = "https://steamusercontent-a.akamaihd.net/ugc/2426949702261775967/768DF5E97CB1FBE314C632B9FFDEB2D433A39690/"
+    hp = "https://steamusercontent-a.akamaihd.net/ugc/17692463545472723776/FDCF6A7BD047FF0FE95D7B18C1D742804F096322/",
+    stress = "https://steamusercontent-a.akamaihd.net/ugc/17766890096207944889/BE4260799C63669EC0D532AF8AFB372B5C3671B8/",
+    armor = "https://steamusercontent-a.akamaihd.net/ugc/14796930385077024339/7E84D6CDFFBAE9FD7391FDCFF72A04F07575A81A/"
 }
 
 
@@ -258,7 +269,6 @@ function set_data(params)
         return 
     end
 
-    log(params)
 
     self.setTags({"player_token", "movement_measurement", "flying"})
     data.hp = tonumber(params.hp)
@@ -267,8 +277,6 @@ function set_data(params)
     data.maxStress = tonumber(params.max_stress)
     data.armor = tonumber(params.armor)
     data.maxArmor = tonumber(params.max_armor)
-
-    log(data, "token data")
 
     setupUI()
 end
@@ -313,7 +321,7 @@ function setupUI()
                 cellSize = "30 30",
                 position = "0 55 -5",
                 rotation = "0 0 180",
-                id = "armor_container",
+                id = "armor_container"
             },
             children = {}
         }
@@ -517,8 +525,9 @@ end
     
     if not obj then return end
     obj.setLuaScript(script)
+    linked = obj.reload()
 
-    linked = obj
+    -- linked = obj
 
     promise.WaitFrames(40, function()
         local data = utils.getData(self)
@@ -616,6 +625,23 @@ function onCollisionEnter(collision_info)
     end
 end
 
+function updateMini()
+    if not linked then return end
+    
+    local data = utils.getData(self)
+
+    local params = {
+        max_hp = data.max_hp, 
+        hp = data.hp or data.max_hp,
+        stress = data.stress or data.max_stress,
+        max_stress = data.max_stress,
+        armor = data.armor or data.max_armor or 0,
+        max_armor = data.max_armor or 0
+    }
+
+    linked.call("set_data", params)
+end
+
 function showPanel(panel)
     self.UI.show(panel)
 end
@@ -624,134 +650,170 @@ function hidePanel(panel)
     self.UI.hide(panel)
 end
 
+function Injector_setMajorThreshold(amount, player_color)
+    amount = tonumber(amount) or 0
+
+    self.UI.setAttribute("first_threshold", "text", amount)
+    self.UI.setAttribute("minor_damage_display", "text", (amount > 1 and "1 - " .. (amount - 1) or "0"))
+    utils.appendData(self, { first_threshold = amount })
+end
+
+function Injector_setSevereThreshold(amount, player_color)
+    amount = tonumber(amount) or 0
+
+    self.UI.setAttribute("second_threshold", "text", amount)
+    utils.appendData(self, { second_threshold = amount })
+end
+
 function Injector_setMaxHP(amount, player_color, current_amount)
-    amount = tonumber(amount)
-
-    if (amount < 1) then
-        amount = 1
-    end
-
-    if (amount > 12) then
-        utils.error("Max HP cannot exceed 12.", player_color)
+    amount = tonumber(amount) or 1
+    if amount < 1 then amount = 1 end
+    if amount > _defaults.max_hp then
+        utils.error("Max HP cannot exceed " .. _defaults.max_hp .. ".", player_color)
         return
     end
 
-    if not current_amount then
-        current_amount = amount
-    end
-
-    current_amount = tonumber(current_amount)
+    current_amount = tonumber(current_amount) or amount
 
     local xml_table = self.UI.getXmlTable()
     local grid = utils.UI_findElementById(xml_table, "hp")  
-
     grid.children = {}
 
+    local asset = imageAssets.hp
     for i = 1, amount do
-        local image = {
-            tag = "Image",
-            attributes = {
-                class = "hp",
-                id = "hp_" .. i,
-                color = i > current_amount and "#000000" or "#ffffff"
-            }
-        }
-        
-        table.insert(grid.children, image)
+        local isFilled = (i <= current_amount)
+        local attributes = { class = "hp", id = "hp_" .. i }
+
+        if asset and asset.useColor then
+            attributes.color = isFilled and (asset.color and asset.color.filled or "#ffffff") or (asset.color and asset.color.empty or "#000000")
+        elseif asset then
+            attributes.image = isFilled and asset.filled or asset.empty
+        else
+            attributes.color = isFilled and "#ffffff" or "#000000"
+        end
+
+        table.insert(grid.children, { tag = "Image", attributes = attributes })
     end
-
-    log(grid)
-
+    
     self.UI.setXmlTable(xml_table)
-    utils.appendData(self, {max_hp = amount})
+    utils.appendData(self, { max_hp = amount, hp = current_amount })
+    updateMini()
 end
 
 function Injector_setMaxStress(amount, player_color, current_amount)
-    amount = tonumber(amount)
-
-    if (amount < 1) then
-        amount = 1
-    end
-
-    if (amount > 12) then
-        utils.error("Max Stress cannot exceed 12.", player_color)
+    amount = tonumber(amount) or 1
+    if amount < 1 then amount = 1 end
+    if amount > _defaults.max_stress then
+        utils.error("Max Stress cannot exceed ".._defaults.max_stress..".", player_color)
         return
     end
 
-    if not current_amount then
-        current_amount = amount
-    end
-
-    current_amount = tonumber(current_amount)
+    current_amount = tonumber(current_amount) or amount
 
     local xml_table = self.UI.getXmlTable()
     local grid = utils.UI_findElementById(xml_table, "stress")
-
     grid.children = {}    
 
+    local asset = imageAssets.stress
     for i = 1, amount do
-        local image = {
-            tag = "Image",
-            attributes = {
-                class = "stress",
-                id = "stress_" .. i,
-                color = i > current_amount and "#000000" or "#ffffff"
-            }
-        }
-        table.insert(grid.children, image)
+        local isFilled = (i <= current_amount)
+        local attributes = { class = "stress", id = "stress_" .. i }
+
+        if asset and asset.useColor then
+            attributes.color = isFilled and (asset.color and asset.color.filled or "#ffffff") or (asset.color and asset.color.empty or "#000000")
+        elseif asset then
+            attributes.image = isFilled and asset.filled or asset.empty
+        else
+            attributes.color = isFilled and "#ffffff" or "#000000"
+        end
+
+        table.insert(grid.children, { tag = "Image", attributes = attributes })
     end
 
     self.UI.setXmlTable(xml_table)
-    utils.appendData(self, {max_stress = amount})
+    utils.appendData(self, { max_stress = amount, stress = current_amount })
+    updateMini()
 end
 
 
-function Injector_setMaxArmor(amount,  player_color, current_amount)
-
-    amount = tonumber(amount)
-
-    if (amount < 1) then
-        amount = 1
-    end
-
-    if (amount > 18) then
-        utils.error("Armor Slots cannot exceed 18.", player_color)
+function Injector_setMaxArmor(amount, player_color, current_amount)
+    amount = tonumber(amount) or 1
+    if amount < 1 then amount = 1 end
+    if amount > _defaults.max_armor then
+        utils.error("Armor Slots cannot exceed ".._defaults.max_armor..".", player_color)
         return
     end
 
-    if not current_amount then
-        current_amount = amount
-    end
-
-    current_amount = tonumber(current_amount)
+    current_amount = tonumber(current_amount) or amount
 
     local xml_table = self.UI.getXmlTable()
     local grid = utils.UI_findElementById(xml_table, "armor_slots")
-
     grid.children = {}
 
+    local asset = imageAssets.armor
     for i = 1, amount do
-        local image = {
-            tag = "Image",
-            attributes = {
-                class = "armor-filled",
-                id = "armor_" .. i,
-                image = imageAssets.armor.filled,
-                color = i > current_amount and imageAssets.armor.color.empty or imageAssets.armor.color.filled
-            }
-        }
-        table.insert(grid.children, image)
+        local isFilled = (i <= current_amount)
+        local attributes = { class = "armor-filled", id = "armor_" .. i }
+
+        if asset and asset.useColor then
+            attributes.image = asset.filled
+            attributes.color = isFilled and (asset.color and asset.color.filled or "#8796F6") or (asset.color and asset.color.empty or "#000000")
+        elseif asset then
+            attributes.image = isFilled and asset.filled or asset.empty
+        end
+
+        table.insert(grid.children, { tag = "Image", attributes = attributes })
     end
 
     self.UI.setXmlTable(xml_table)
-    utils.appendData(self, {max_armor = amount})
+    utils.appendData(self, { max_armor = amount, armor = current_amount })
+    self.UI.setAttribute("armor_display", "text", current_amount)
+    updateMini()
 end
 
-function setHope(amount)
-    for i = 1, 6 do
-        local image = i > amount and imageAssets.hope.empty or imageAssets.hope.filled
-        self.UI.setAttribute("hope_" .. i, "image", image)
+function Injector_setMaxHope(amount, player_color, current_amount)
+    amount = tonumber(amount) or 1
+    if amount < 1 then amount = 1 end
+    if amount > _defaults.max_hope then
+        utils.error("Max Hope cannot exceed ".._defaults.max_hope..".", player_color)
+        return
     end
+
+    local data = utils.getData(self)
+    
+    -- Preserve existing hope if current_amount was not explicitly provided
+    current_amount = tonumber(current_amount) or data.hope or 0
+
+    -- Clamp current hope if the new max is lower than current hope
+    if current_amount > amount then
+        current_amount = amount
+    end
+
+    local xml_table = self.UI.getXmlTable()
+    local grid = utils.UI_findElementById(xml_table, "hope")
+    if grid then
+        grid.children = {}
+
+        local asset = imageAssets.hope
+        for i = 1, amount do
+            local isFilled = (i <= current_amount)
+            local attributes = { class = "hope", id = "hope_" .. i }
+
+            if asset and asset.useColor then
+                attributes.color = isFilled and (asset.color and asset.color.filled or "#ffffff") or (asset.color and asset.color.empty or "#000000")
+            elseif asset then
+                attributes.image = isFilled and asset.filled or asset.empty
+            else
+                attributes.color = isFilled and "#ffffff" or "#000000"
+            end
+
+            table.insert(grid.children, { tag = "Image", attributes = attributes })
+        end
+
+        self.UI.setXmlTable(xml_table)
+    end
+
+    utils.appendData(self, { max_hope = amount, hope = current_amount })
 end
 
 function setThresholds(first, second)
@@ -768,6 +830,7 @@ end
 
 function setEvasion(value)
     self.UI.setAttribute("evasion", "text", value)
+    utils.appendData(self, { evasion = text })
 end
 
 function setArmorDisplay(value)
@@ -790,8 +853,20 @@ function UI_SetVariable(player_color, variable)
                 ["max_stress"] = function()
                     Injector_setMaxStress(text, player_color.color)
                 end,
+                ["evasion"] = function()
+                    setEvasion(text)
+                end,
                 ["max_armor"] = function()
                     Injector_setMaxArmor(text, player_color.color)
+                end,
+                ["max_hope"] = function()
+                    Injector_setMaxHope(text, player_color.color)
+                end, -- Comma fixed here
+                ["first_threshold"] = function()
+                    Injector_setMajorThreshold(text, player_color.color)
+                end,
+                ["second_threshold"] = function()
+                    Injector_setSevereThreshold(text, player_color.color)
                 end
             }
             
@@ -834,113 +909,142 @@ function UI_LoseVariable(player_color, variable)
 end
 
 function sufferHP()
-    local xml_table = self.UI.getXmlTable()
-    local target = utils.UI_findElementById(xml_table, "hp")
-    for i = #target.children, 1, -1 do
-        local color = self.UI.getAttribute("hp_"..i, "color")
-        if not color or color == "#ffffff" then
-            self.UI.setAttribute("hp_"..i, "color", "#000000")
-            utils.appendData(self, {hp = i - 1})
-            linked.call("sufferHP")
-            return
-        end
+    local data = utils.getData(self)
+    local maxHp = data.max_hp or 12
+    local currentHp = data.hp or maxHp
+
+    if currentHp > 0 then
+        currentHp = currentHp - 1
+        utils.appendData(self, { hp = currentHp })
+        updateResourceDisplay("hp", currentHp, maxHp, "hp_")
+        if linked then linked.call("sufferHP") end
     end
 end
 
 function recoverHP()
-    local xml_table = self.UI.getXmlTable()
-    local target = utils.UI_findElementById(xml_table, "hp")
-    for i = 1, #target.children do
-        local color = self.UI.getAttribute("hp_"..i, "color")
-        if color and color == "#000000" then
-            self.UI.setAttribute("hp_"..i, "color", "#ffffff")
-            utils.appendData(self, {hp = i })
-            linked.call("healHP")
-            return
-        end
+    local data = utils.getData(self)
+    local maxHp = data.max_hp or 12
+    local currentHp = data.hp or maxHp
+
+    if currentHp < maxHp then
+        currentHp = currentHp + 1
+        utils.appendData(self, { hp = currentHp })
+        updateResourceDisplay("hp", currentHp, maxHp, "hp_")
+        if linked then linked.call("healHP") end
     end
 end
 
 function sufferStress()
-    local xml_table = self.UI.getXmlTable()
-    local target = utils.UI_findElementById(xml_table, "stress")
-    for i = #target.children, 1, -1 do
-        local color = self.UI.getAttribute("stress_"..i, "color")
-        if not color or color == "#ffffff" then
-            self.UI.setAttribute("stress_"..i, "color", "#000000")
-            utils.appendData(self, {stress = i - 1})
-            linked.call("sufferStress")
-            return
-        end
+    local data = utils.getData(self)
+    local maxStress = data.max_stress or 12
+    local currentStress = data.stress or maxStress
+
+    if currentStress > 0 then
+        currentStress = currentStress - 1
+        utils.appendData(self, { stress = currentStress })
+        updateResourceDisplay("stress", currentStress, maxStress, "stress_")
+        if linked then linked.call("sufferStress") end
     end
 end
 
 function recoverStress()
-    local xml_table = self.UI.getXmlTable()
-    local target = utils.UI_findElementById(xml_table, "stress")
-    for i = 1, #target.children do
-        local color = self.UI.getAttribute("stress_"..i, "color")
-        if color and color == "#000000" then
-            self.UI.setAttribute("stress_"..i, "color", "#ffffff")
-            utils.appendData(self, {stress = i })
-            linked.call("healStress")
-            return
-        end
+    local data = utils.getData(self)
+    local maxStress = data.max_stress or 12
+    local currentStress = data.stress or maxStress
+
+    if currentStress < maxStress then
+        currentStress = currentStress + 1
+        utils.appendData(self, { stress = currentStress })
+        updateResourceDisplay("stress", currentStress, maxStress, "stress_")
+        if linked then linked.call("healStress") end
     end
 end
 
 function loseArmor()
-    local xml_table = self.UI.getXmlTable()
-    local target = utils.UI_findElementById(xml_table, "armor_slots")
-    for i = #target.children, 1, -1 do
-        local image = self.UI.getAttribute("armor_"..i, "color")
-        if not image or image == imageAssets.armor.color.filled then
-            self.UI.setAttribute("armor_"..i, "color", imageAssets.armor.color.empty)
-            utils.appendData(self, {armor = i - 1})
-            self.UI.setAttribute("armor_display", "text", i - 1)
-            linked.call("loseArmor")
-            return
-        end
+    local data = utils.getData(self)
+    local maxArmor = data.max_armor or 18
+    local currentArmor = data.armor or maxArmor
+
+    if currentArmor > 0 then
+        currentArmor = currentArmor - 1
+        utils.appendData(self, { armor = currentArmor })
+        self.UI.setAttribute("armor_display", "text", currentArmor)
+        updateResourceDisplay("armor", currentArmor, maxArmor, "armor_")
+        if linked then linked.call("loseArmor") end
     end
 end
 
 function gainArmor()
-    local xml_table = self.UI.getXmlTable()
-    local target = utils.UI_findElementById(xml_table, "armor_slots")
-    for i = 1, #target.children do
-        local color = self.UI.getAttribute("armor_"..i, "color")
-        if not color or color == imageAssets.armor.color.empty then
-            self.UI.setAttribute("armor_"..i, "color", imageAssets.armor.color.filled)
-            utils.appendData(self, {armor = i })
-            self.UI.setAttribute("armor_display", "text", i)
-            linked.call("gainArmor")
-            return
-        end
+    local data = utils.getData(self)
+    local maxArmor = data.max_armor or 18
+    local currentArmor = data.armor or maxArmor
+
+    if currentArmor < maxArmor then
+        currentArmor = currentArmor + 1
+        utils.appendData(self, { armor = currentArmor })
+        self.UI.setAttribute("armor_display", "text", currentArmor)
+        updateResourceDisplay("armor", currentArmor, maxArmor, "armor_")
+        if linked then linked.call("gainArmor") end
     end
 end
 
 function loseHope()
-    local xml_table = self.UI.getXmlTable()
-    local target = utils.UI_findElementById(xml_table, "hope")
-    for i = #target.children, 1, -1 do
-        local image = self.UI.getAttribute("hope_"..i, "image")
-        if not image or image == imageAssets.hope.filled then
-            self.UI.setAttribute("hope_"..i, "image", imageAssets.hope.empty)
-            utils.appendData(self, {hope = i - 1})
-            return
-        end
+    local data = utils.getData(self)
+    local maxHope = data.max_hope or 6
+    local currentHope = data.hope or 0
+
+    if currentHope > 0 then
+        currentHope = currentHope - 1
+        utils.appendData(self, { hope = currentHope })
+        updateResourceDisplay("hope", currentHope, maxHope, "hope_")
     end
 end
 
 function gainHope()
-    local xml_table = self.UI.getXmlTable()
-    local target = utils.UI_findElementById(xml_table, "hope")
-    for i = 1, #target.children do
-        local image = self.UI.getAttribute("hope_"..i, "image")
-        if image and image == imageAssets.hope.empty then
-            self.UI.setAttribute("hope_"..i, "image", imageAssets.hope.filled)
-            utils.appendData(self, {hope = i })
-            return
+    local data = utils.getData(self)
+    local maxHope = data.max_hope or 6
+    local currentHope = data.hope or 0
+
+    if currentHope < maxHope then
+        currentHope = currentHope + 1
+        utils.appendData(self, { hope = currentHope })
+        updateResourceDisplay("hope", currentHope, maxHope, "hope_")
+    end
+end
+
+function setHope(amount)
+    amount = tonumber(amount) or 0
+    local data = utils.getData(self)
+    local maxHope = data.max_hope or 6
+    utils.appendData(self, { hope = amount })
+    updateResourceDisplay("hope", amount, maxHope, "hope_")
+end
+
+--- Updates all slot icons for a resource automatically based on its `useColor` setting.
+--- @param resourceKey string Key in imageAssets (e.g. "armor", "hope", "hp", "stress")
+--- @param currentValue number How many filled slots the player currently has
+--- @param totalSlots number Total number of slots (max amount)
+--- @param idPrefix string? Optional custom prefix for UI IDs (defaults to "resourceKey_")
+function updateResourceDisplay(resourceKey, currentValue, totalSlots, idPrefix)
+    local asset = imageAssets[resourceKey]
+    if not asset then
+        log("Error: Resource key '" .. tostring(resourceKey) .. "' not found in imageAssets.")
+        return
+    end
+
+    local prefix = idPrefix or (resourceKey .. "_")
+
+    for i = 1, totalSlots do
+        local elementId = prefix .. i
+        local isFilled = (i <= currentValue)
+
+        if asset.useColor then
+            local targetColor = isFilled and (asset.color and asset.color.filled or "#FFFFFF")
+                                         or (asset.color and asset.color.empty or "#000000")
+            self.UI.setAttribute(elementId, "color", targetColor)
+        else
+            local targetImage = isFilled and asset.filled or asset.empty
+            self.UI.setAttribute(elementId, "image", targetImage)
         end
     end
 end

@@ -1,0 +1,1 @@
+- [ ] CRITICAL BUG: When saving while a player mini is flying the flying mechanic cannot be turned off, meaning they'll always be bound to the flying token. The token can be deleted and it fixes it, but ideally we fix it on table load
