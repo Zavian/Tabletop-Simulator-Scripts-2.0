@@ -73,8 +73,11 @@
 --    "tts":{"o":[x,y,z],"r":180,"s":6.4,"m":15}}
 
 -- Where the panel sits on the object. Object UI is drawn relative to the object,
--- so these may need adjusting for the object the script is put on.
-local UI_POSITION = "0 0 -30"
+-- so these may need adjusting for the object the script is put on. The pivot is
+-- the panel's bottom edge and the position is past the token's rim, so the panel
+-- sits beside the token (and grows away from it) instead of covering it.
+local UI_POSITION = "0 90 -30"
+local UI_PIVOT = "0.5 0"
 local UI_ROTATION = "0 0 0"
 local UI_SCALE = "1 1 1"
 local UI_VISIBILITY = "Black|Admin"
@@ -373,7 +376,7 @@ function rebuildUI()
     <Text class="title" fontSize="18" fontStyle="Bold" />
     <Button textColor="#FFFFFF" fontStyle="Bold" fontSize="13" colors="#272A34|#3B3E4D|#1A1C23|#272A3480" />
 </Defaults>
-<Panel id="root" visibility="%s" position="%s" rotation="%s" scale="%s" width="%d" height="%d" color="#0F1015F2" padding="10 10 10 10">
+<Panel id="root" visibility="%s" position="%s" pivot="%s" rotation="%s" scale="%s" width="%d" height="%d" color="#0F1015F2" padding="10 10 10 10">
 <VerticalLayout spacing="6" childForceExpandHeight="false">
     <Text class="title" preferredHeight="26">DIORAMA STACKER</Text>
     <InputField id="paste" preferredHeight="70" lineType="MultiLineNewLine" fontSize="12" placeholder="Paste layer image links (one per line), a stack JSON, or a saved note's GUID" onValueChanged="onPasteChanged" />
@@ -406,7 +409,7 @@ function rebuildUI()
     <Text id="txt_status" class="dim" preferredHeight="36">%s</Text>
 </VerticalLayout>
 </Panel>]],
-        UI_VISIBILITY, UI_POSITION, UI_ROTATION, UI_SCALE, PANEL_WIDTH, height,
+        UI_VISIBILITY, UI_POSITION, UI_PIVOT, UI_ROTATION, UI_SCALE, PANEL_WIDTH, height,
         label("X", 20), input("ox", fmt(state.origin.x), 90, "onOriginX"),
         label("Y", 20), input("oy", fmt(state.origin.y), 90, "onOriginY"),
         label("Z", 20), input("oz", fmt(state.origin.z), 90, "onOriginZ"),
