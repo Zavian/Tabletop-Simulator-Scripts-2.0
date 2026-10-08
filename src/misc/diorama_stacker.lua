@@ -58,7 +58,10 @@
 -- be edited in a text editor and pasted back instead of field by field. SAVE TO
 -- NOTE spawns a Notecard holding the same JSON, plus a "stacker" block with the
 -- position 0, rotation, scale and merge distance, so a finished stack can be
--- kept and rebuilt later by pasting the note's text into the box and pressing ADD.
+-- kept and rebuilt later. TTS cuts a long note's text short, so the full JSON
+-- also goes in the note's `memo`, which it does not trim: paste the note's GUID
+-- into the box and press ADD to load it. The note's text is then only a copy to
+-- read (and is complete on short stacks).
 
 -- Where the panel sits on the object. Object UI is drawn relative to the object,
 -- so these may need adjusting for the object the script is put on.
@@ -71,7 +74,7 @@ local MIN_THICKNESS = 0.1
 local MAX_THICKNESS = 1
 local MAX_COPIES = 20 -- a typo of 200 should not spawn 200 tokens
 local LOAD_TIMEOUT = 60 -- seconds to wait for every image to load
-local PANEL_WIDTH = 690
+local PANEL_WIDTH = 750
 local ROW_HEIGHT = 30
 
 local state = {
@@ -90,6 +93,7 @@ local state = {
 local pasteBuffer = ""
 local clearLayersArmed = false
 local pickFor = nil -- id of the layer whose PICK is waiting for a click on another name
+local copyFrom = nil -- id of the layer whose COPY is pasting its height onto clicked names
 local syncToken = 0 -- debounces live updates
 local buildId = 0 -- bumped on every build/clear so a stale build stops placing
 local status = "Paste links and press ADD."
@@ -328,6 +332,7 @@ function rebuildUI()
  %s
     %s
     %s
+    %s
  %s
     %s
     %s
@@ -338,6 +343,9 @@ function rebuildUI()
                 '<Button id="nm_%d" preferredWidth="210" textAlignment="MiddleLeft" fontStyle="Normal" colors="' .. NAME_COLORS .. '" textColor="' .. NAME_TEXT_COLOR .. '" onClick="onSelectLayer" tooltip="Click to highlight and ping its pieces. %s">%s</Button>',
                 i, xmlEscape(layer.url), xmlEscape(i .. ". " .. layer.name)),
             input("h_" .. i, heightText(layer), 80, "onLayerHeight", "None"),
+            string.format('<Button id="cp_%d" preferredWidth="50" fontSize="11" onClick="onCopyHeight" colors="%s" textColor="%s" tooltip="Then click the names of the layers to give this height to">COPY</Button>',
+                i, copyFrom == layer.id and "#FFD91A|#FFE45C|#E6C200|#FFD91A80" or "#272A34|#3B3E4D|#1A1C23|#272A3480",
+                copyFrom == layer.id and "#000000" or "#FFFFFF"),
             input("y_" .. i, fmt(layer.y), 80, "onLayerY"),
             sitsOnDropdown(i, layer),
             string.format('<Button id="pk_%d" preferredWidth="46" fontSize="11" onClick="onPickParent" colors="%s" textColor="%s" tooltip="Then click the name of the layer this one sits on">PICK</Button>',
@@ -359,7 +367,7 @@ function rebuildUI()
 <Panel id="root" visibility="%s" position="%s" rotation="%s" scale="%s" width="%d" height="%d" color="#0F1015F2" padding="10 10 10 10">
 <VerticalLayout spacing="6" childForceExpandHeight="false">
     <Text class="title" preferredHeight="26">DIORAMA STACKER</Text>
-    <InputField id="paste" preferredHeight="70" lineType="MultiLineNewLine" fontSize="12" placeholder="Paste layer image links (one per line) or a Scriptorium stack JSON" onValueChanged="onPasteChanged" />
+    <InputField id="paste" preferredHeight="70" lineType="MultiLineNewLine" fontSize="12" placeholder="Paste layer image links (one per line), a stack JSON, or a saved note's GUID" onValueChanged="onPasteChanged" />
     <HorizontalLayout preferredHeight="32" spacing="6">
         <Button text="ADD" onClick="onAdd" colors="#3B82F6|#2563EB|#1D4ED8|#3B82F680" tooltip="Links are added to the list; a stack JSON replaces it" />
         <Button text="EDIT AS JSON" onClick="onEditAsJson" />
@@ -383,7 +391,7 @@ function rebuildUI()
         %s %s %s %s %s %s
     </HorizontalLayout>
     <HorizontalLayout preferredHeight="20" spacing="6" childForceExpandWidth="false">
-        %s %s %s %s %s %s
+        %s %s %s %s %s %s %s
     </HorizontalLayout>
     %s
     <Text id="txt_status" class="dim" preferredHeight="36">%s</Text>
@@ -399,6 +407,7 @@ function rebuildUI()
         label("Merge px", 70), input("merge", fmt(state.merge), 80, "onMerge", "Integer"),
         label("Layer", 210, 'class="dim" alignment="MiddleLeft"'),
         label("Height", 80, 'class="dim"'),
+        label("", 50),
         label("Y", 80, 'class="dim"'),
         label("Sits on", 130, 'class="dim"'),
         label("", 46),
@@ -435,9 +444,25 @@ end
 -- One button for the paste box: text that starts with "{" is a stack JSON and
 -- replaces the list; anything else is links, added to it. A link never starts
 -- with "{", so the two cannot be confused.
+-- One button for the paste box, deciding by what was pasted:
+--   starts with "{"      a stack JSON, which replaces the list;
+--   one GUID, nothing else  a note made by SAVE TO NOTE, whose full JSON is in its memo;
+--   anything else        links, added to the list.
+-- A link never starts with "{" and is never six bare hex digits, so these cannot
+-- be confused.
 function onAdd(player)
     if not isAuthorized(player) then return end
-    if pasteBuffer:match("^%s*{") then
+    local guid = pasteBuffer:match("^%s*(%x%x%x%x%x%x)%s*$")
+    if guid then
+        local note = getObjectFromGUID(guid)
+        local memo = note and note.memo
+        if type(memo) ~= "string" or not memo:match("^%s*{") then
+            tell(player, "Object " .. guid .. " is not a note saved by SAVE TO NOTE.", { 1, 0.6, 0.2 })
+            return
+        end
+        pasteBuffer = memo
+        onImportJson(player)
+    elseif pasteBuffer:match("^%s*{") then
         onImportJson(player)
     else
         onAddLinks(player)
@@ -557,7 +582,7 @@ end
 -- and paste back with ADD.
 -- The current list and settings as stack JSON: what EDIT AS JSON and SAVE TO
 -- NOTE both write, and what ADD reads back.
-local function stackJson()
+local function stackJson(compact)
     local layers = {}
     for i, layer in ipairs(state.layers) do
         -- A split layer goes out as "0.1*3", the way it was typed, rather than as
@@ -566,7 +591,7 @@ local function stackJson()
         local parent = layer.on and state.layers[layerIndexById(layer.on) or 0]
         layers[i] = { name = layer.name, url = layer.url, height = height, y = layer.y, on = parent and parent.name or nil }
     end
-    return JSON.encode_pretty({
+    return (compact and JSON.encode or JSON.encode_pretty)({
         format = "scriptorium-diorama-stack",
         version = 1,
         map = state.map,
@@ -601,8 +626,14 @@ function onSaveToNote(player)
     local title = "Diorama stack: " .. (state.map or "untitled") .. " (" .. os.date("%Y-%m-%d %H:%M") .. ")"
     local note = spawnObject({ type = "Notecard", position = { p.x + 3, p.y + 1, p.z }, sound = false })
     note.setName(title)
-    note.setDescription(stackJson())
-    tell(player, "Saved " .. #state.layers .. " layer(s) to the note \"" .. title .. "\".")
+    -- The full stack goes in the memo, which TTS keeps whole; the text is a
+    -- compact copy that TTS may cut short on a big stack.
+    local json = stackJson(true)
+    note.memo = json
+    note.setDescription(json)
+    local guid = note.getGUID()
+    tell(player, "Saved " .. #state.layers .. " layer(s) to note " .. guid
+        .. ". To load it later, paste " .. guid .. " in the box and press ADD.")
 end
 
 -- Two presses, because it throws away every height and Y typed so far. Spawned
@@ -632,6 +663,23 @@ function onSelectLayer(player, _, id)
     if not isAuthorized(player) then return end
     local layer = state.layers[indexFromId(id)]
     if not layer then return end
+    if copyFrom ~= nil then
+        local sourceIndex = layerIndexById(copyFrom)
+        local source = sourceIndex and state.layers[sourceIndex]
+        if not source or source == layer then
+            copyFrom = nil
+            status = "Copy finished."
+            rebuildUI()
+            return
+        end
+        -- Stays armed, so one height can go to several layers in a row.
+        layer.height, layer.copies = source.height, source.copies
+        status = layer.name .. " now has " .. source.name .. "'s height (" .. heightText(source)
+            .. "). Click more names, or COPY again to stop."
+        rebuildUI()
+        scheduleSync(player)
+        return
+    end
     if pickFor ~= nil then
         local childIndex = layerIndexById(pickFor)
         pickFor = nil
@@ -732,12 +780,31 @@ function onPickParent(player, _, id)
     if not isAuthorized(player) then return end
     local layer = layerAt(id)
     if not layer then return end
+    copyFrom = nil
     if pickFor == layer.id then
         pickFor = nil
         status = "Pick cancelled."
     else
         pickFor = layer.id
         status = "Click the name of the layer " .. layer.name .. " sits on."
+    end
+    rebuildUI()
+end
+
+-- COPY arms the row; every click on another layer's name then gives that layer
+-- this one's height (copies included, so 0.1*3 stays 0.1*3) instead of pinging.
+-- Pressing COPY again, or clicking its own name, stops.
+function onCopyHeight(player, _, id)
+    if not isAuthorized(player) then return end
+    local layer = layerAt(id)
+    if not layer then return end
+    pickFor = nil
+    if copyFrom == layer.id then
+        copyFrom = nil
+        status = "Copy finished."
+    else
+        copyFrom = layer.id
+        status = "Click the names of the layers to give " .. layer.name .. "'s height (" .. heightText(layer) .. ") to."
     end
     rebuildUI()
 end
