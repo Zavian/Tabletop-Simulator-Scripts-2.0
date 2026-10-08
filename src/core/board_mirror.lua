@@ -64,6 +64,8 @@ local SHADOW_THICKNESS = 0.05
 local LABEL_HEIGHT = 0.15
 local HEARTBEAT = 1
 local BOARD_GLOW = 2
+local PIN_WATCH = 0.2
+local PIN_WATCH_TIME = 15
 
 -- Pin colors: bright hues, so pins and names read well on dark boards.
 local PIN_COLORS = {
@@ -111,6 +113,7 @@ local last_seen = {}
 local ghost_hidden = {}
 local board_menus = {}
 local echoing = false
+local pin_watch = {}
 local stashed = {}
 
 ------------------------------------------------------------------------------
@@ -127,6 +130,13 @@ end
 
 local function isTracked(obj)
     return obj.hasTag(OBJECT_TAGS.movement_measurement) and not isGhost(obj)
+end
+
+-- Done moving: not held, not smooth-moving, and either resting or locked. A
+-- locked object never reports resting, and the map bundler's positioner locks
+-- every piece it puts back.
+local function settled(obj)
+    return obj.held_by_color == nil and not obj.isSmoothMoving() and (obj.resting or obj.getLock())
 end
 
 local function save()
@@ -416,7 +426,7 @@ function BoardMirror.sync(token)
     local tokenGuid = token.getGUID()
     local masterBoard, hitPoint = masterBoardUnder(token)
 
-    if masterBoard and hitPoint and token.held_by_color == nil and token.resting then
+    if masterBoard and hitPoint and settled(token) then
         local b = token.getBounds()
         rest_offset[tokenGuid] = math.max(0, (b.center.y - b.size.y / 2) - hitPoint.y)
     end
@@ -492,7 +502,7 @@ local function follow(token)
             return
         end
         BoardMirror.sync(token)
-        if token.held_by_color == nil and token.resting and not token.isSmoothMoving() then
+        if settled(token) then
             stopFollowing(tokenGuid)
             last_seen[tokenGuid] = tokenSignature(token)
         end
@@ -863,7 +873,7 @@ replacePins = function()
     local changed = false
     local function check(guid, entry)
         local pin = getObjectFromGUID(guid)
-        if pin == nil or not pin.resting or pin.isSmoothMoving() or pin.held_by_color then return end
+        if pin == nil or not settled(pin) then return end
         local p = pin.getPosition()
         local sig = string.format("%.2f %.2f %.2f", p.x, p.y, p.z)
         if entry.board == nil or last_seen[guid] ~= sig then
@@ -873,6 +883,32 @@ replacePins = function()
     for guid, entry in pairs(state.masters) do check(guid, entry) end
     for guid, entry in pairs(state.slaves) do check(guid, entry) end
     return changed
+end
+
+-- Watches a pin that just appeared (unbundled, taken out of a bag, pasted)
+-- every PIN_WATCH for PIN_WATCH_TIME, placing it each time it settles
+-- somewhere new. The positioner first drops pieces in a pile and only later
+-- slides them home, so one placement is not enough; this keeps up with it
+-- instead of waiting for the once-a-second heartbeat.
+local function watchPin(pin)
+    local guid = pin.getGUID()
+    if pin_watch[guid] then Wait.stop(pin_watch[guid]) end
+    local elapsed = 0
+    pin_watch[guid] = Wait.time(function()
+        elapsed = elapsed + PIN_WATCH
+        local entry = state.masters[guid] or state.slaves[guid]
+        if pin.isDestroyed() or entry == nil or elapsed >= PIN_WATCH_TIME then
+            Wait.stop(pin_watch[guid])
+            pin_watch[guid] = nil
+            return
+        end
+        if not settled(pin) then return end
+        local p = pin.getPosition()
+        local sig = string.format("%.2f %.2f %.2f", p.x, p.y, p.z)
+        if entry.board == nil or last_seen[guid] ~= sig then
+            if placePin(pin) then BoardMirror.syncAll() end
+        end
+    end, PIN_WATCH, -1)
 end
 
 -- Brings in the links an older version kept in SAVED_DATA, by writing them
@@ -936,7 +972,10 @@ end
 function BoardMirror.registerMaster(guid)
     if state == nil then return end
     local pin = getObjectFromGUID(guid)
-    if pin then registerPin(pin) end
+    if pin then
+        registerPin(pin)
+        watchPin(pin)
+    end
 end
 
 -- Pins coming out of a bag, a bundle or a paste. Masters also register from
@@ -945,6 +984,7 @@ end
 function BoardMirror.onSpawn(obj)
     if state == nil or not isPin(obj) then return end
     registerPin(obj)
+    watchPin(obj)
 end
 
 function BoardMirror.onPickUp(obj)
@@ -962,7 +1002,7 @@ function BoardMirror.onDrop(obj, player_color)
             if obj.isDestroyed() then return end
             placePin(obj, player_color)
             BoardMirror.syncAll()
-        end, function() return obj.isDestroyed() or obj.resting end, 5)
+        end, function() return obj.isDestroyed() or settled(obj) end, 5)
     end
 end
 
