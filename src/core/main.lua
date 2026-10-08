@@ -138,6 +138,10 @@ function onObjectDestroy(obj)
     board_mirror.onDestroy(obj)
 end
 
+function onObjectSpawn(obj)
+    board_mirror.onSpawn(obj)
+end
+
 function onObjectRotate(obj, spin, flip, player_color, old_spin, old_flip)
     board_mirror.onRotate(obj)
 end
