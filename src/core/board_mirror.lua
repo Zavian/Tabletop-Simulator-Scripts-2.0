@@ -899,7 +899,6 @@ end
 ------------------------------------------------------------------------------
 
 function BoardMirror.init()
-    math.randomseed(os.time())
     local saved = SAVED_DATA.BOARD_MIRROR or {}
     state = { masters = {}, slaves = {}, hidden = saved.hidden or {} }
     migrate(saved)
