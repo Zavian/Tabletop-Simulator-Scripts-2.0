@@ -12,6 +12,10 @@
 -- copy ever falls under the 0.1 minimum (2.05 is three copies of ~0.68, not two
 -- of 1 plus a 0.05 sliver).
 --
+-- A height can also be written "thickness*count" (or "thicknessxcount"): 0.1*3
+-- is three copies 0.1 thick, total 0.3, where plain 0.3 is one copy 0.3 thick.
+-- The layer keeps `copies` for that, and the JSON carries it the same way.
+--
 -- What is measured rather than assumed. The API documents what `thickness`
 -- means only as "how thick the token is", and nothing about where a token's
 -- pivot sits relative to its faces. So every piece is spawned, left to finish
@@ -163,6 +167,22 @@ local function clampHeight(n)
     return math.min(math.max(n, MIN_THICKNESS), MAX_THICKNESS * MAX_COPIES)
 end
 
+-- "0.1*3" -> total 0.3, 3 copies; "0.3" -> 0.3, nil. Nil when it is neither.
+local function parseHeight(text)
+    text = tostring(text or ""):gsub("%s", "")
+    local t, n = text:match("^([%d%.]+)[%*xX](%d+)$")
+    if t then
+        t, n = tonumber(t), tonumber(n)
+        if not t or not n or n < 1 then return nil end
+        t = math.min(math.max(t, MIN_THICKNESS), MAX_THICKNESS)
+        n = math.min(n, MAX_COPIES)
+        return t * n, n
+    end
+    local plain = tonumber(text)
+    if plain and plain > 0 then return plain, nil end
+    return nil
+end
+
 -- Height -> number of copies and the thickness of each.
 local function splitHeight(height)
     if height <= MAX_THICKNESS then
@@ -170,6 +190,18 @@ local function splitHeight(height)
     end
     local count = math.min(math.ceil(height / MAX_THICKNESS - 1e-9), MAX_COPIES)
     return count, math.min(height / count, MAX_THICKNESS)
+end
+
+-- A layer's copies and thickness: its explicit count when it has one.
+local function splitLayer(layer)
+    if layer.copies then return layer.copies, layer.height / layer.copies end
+    return splitHeight(layer.height)
+end
+
+-- What the Height field shows: the form it was typed in.
+local function heightText(layer)
+    if layer.copies then return fmt(layer.height / layer.copies) .. "*" .. layer.copies end
+    return fmt(layer.height)
 end
 
 -------------------------------------------------------------------------------
@@ -190,7 +222,7 @@ function rebuildUI()
     ensureLayerIds()
     local rows = {}
     for i, layer in ipairs(state.layers) do
-        local count = splitHeight(layer.height)
+        local count = splitLayer(layer)
         rows[#rows + 1] = string.format([[
 <HorizontalLayout preferredHeight="%d" spacing="6" childForceExpandWidth="false">
     %s
@@ -203,7 +235,7 @@ function rebuildUI()
             string.format(
                 '<Button id="nm_%d" preferredWidth="250" textAlignment="MiddleLeft" fontStyle="Normal" colors="#00000000|#FFFFFF1A|#FFFFFF33|#00000000" onClick="onSelectLayer" tooltip="Click to highlight and ping its pieces. %s">%s</Button>',
                 i, xmlEscape(layer.url), xmlEscape(i .. ". " .. layer.name)),
-            input("h_" .. i, fmt(layer.height), 80, "onLayerHeight"),
+            input("h_" .. i, heightText(layer), 80, "onLayerHeight", "None"),
             input("y_" .. i, fmt(layer.y), 80, "onLayerY"),
             label(count > 1 and ("x" .. count) or "", 50, 'class="dim"'),
             i)
@@ -306,15 +338,23 @@ function onImportJson(player)
     end
     local layers = {}
     for i, entry in ipairs(data.layers) do
-        local height = tonumber(type(entry) == "table" and entry.height)
-        if type(entry) ~= "table" or type(entry.url) ~= "string" or entry.url == "" or not height or height <= 0 then
+        -- "height" may be a number or "0.1*3"; an explicit "copies" splits a number.
+        local height, copies
+        if type(entry) == "table" then height, copies = parseHeight(entry.height) end
+        if type(entry) ~= "table" or type(entry.url) ~= "string" or entry.url == "" or not height then
             tell(player, "Layer " .. i .. " in the JSON needs a \"url\" and a positive \"height\".", { 1, 0.6, 0.2 })
             return
+        end
+        local n = tonumber(entry.copies)
+        if not copies and n and n >= 1 then
+            copies = math.min(math.floor(n), MAX_COPIES)
+            height = math.min(math.max(height / copies, MIN_THICKNESS), MAX_THICKNESS) * copies
         end
         layers[i] = {
             url = entry.url,
             name = type(entry.name) == "string" and entry.name ~= "" and entry.name or ("Layer " .. i),
-            height = clampHeight(height),
+            height = copies and height or clampHeight(height),
+            copies = copies,
             y = tonumber(entry.y) or 0,
         }
     end
@@ -331,7 +371,10 @@ function onEditAsJson(player)
     if not isAuthorized(player) then return end
     local layers = {}
     for i, layer in ipairs(state.layers) do
-        layers[i] = { name = layer.name, url = layer.url, height = layer.height, y = layer.y }
+        -- A split layer goes out as "0.1*3", the way it was typed, rather than as
+        -- 0.30000000000000004 plus a count; IMPORT JSON reads either.
+        local height = layer.copies and heightText(layer) or tonumber(fmt(layer.height))
+        layers[i] = { name = layer.name, url = layer.url, height = height, y = layer.y }
     end
     pasteBuffer = JSON.encode_pretty({ format = "scriptorium-diorama-stack", version = 1, layers = layers })
     self.UI.setAttribute("paste", "text", pasteBuffer)
@@ -411,20 +454,25 @@ end
 
 local function layerAt(id) return state.layers[indexFromId(id)] end
 
-onLayerHeight = numberField(function(id, n)
+-- Not a numberField: "0.1*3" is not a number. Half-typed text ("0.1*") simply
+-- does not parse and keeps the last valid value, like the number fields do.
+function onLayerHeight(player, value, id)
+    if not isAuthorized(player) then return end
     local layer = layerAt(id)
-    if layer then layer.height = n end
-end)
-onLayerHeightEnd = function(player, value, id)
+    local height, copies = parseHeight(value)
+    if layer and height then
+        layer.height, layer.copies = height, copies
+    end
+end
+
+function onLayerHeightEnd(player, value, id)
     if not isAuthorized(player) then return end
     local layer = layerAt(id)
     if not layer then return end
-    local before = splitHeight(layer.height)
-    layer.height = clampHeight(layer.height)
-    -- The copy count is shown next to the row, so a change in it redraws.
-    if splitHeight(layer.height) ~= before or tonumber(value) ~= layer.height then
-        rebuildUI()
-    end
+    if not layer.copies then layer.height = clampHeight(layer.height) end
+    -- Redrawn every time: the field is normalised and the copy count beside it
+    -- may have changed. Focus has already left the field, so nothing is lost.
+    rebuildUI()
 end
 
 onLayerY = numberField(function(id, n)
@@ -501,7 +549,7 @@ function build(player)
     -- load; everything is moved into place once it can be measured.
     local pieces = {}
     for i, layer in ipairs(state.layers) do
-        local count, thickness = splitHeight(layer.height)
+        local count, thickness = splitLayer(layer)
         for c = 1, count do
             local obj = spawnObject({
                 type = "Custom_Token",
