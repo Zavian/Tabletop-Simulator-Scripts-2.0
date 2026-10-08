@@ -58,10 +58,19 @@
 -- be edited in a text editor and pasted back instead of field by field. SAVE TO
 -- NOTE spawns a Notecard holding the same JSON, plus a "stacker" block with the
 -- position 0, rotation, scale and merge distance, so a finished stack can be
--- kept and rebuilt later. TTS cuts a long note's text short, so the full JSON
--- also goes in the note's `memo`, which it does not trim: paste the note's GUID
--- into the box and press ADD to load it. The note's text is then only a copy to
--- read (and is complete on short stacks).
+-- kept and rebuilt later. TTS cuts a note's text at 2048 characters, so:
+--   * the full stack always goes in the note's `memo`, which TTS keeps whole;
+--     paste the note's GUID into the box and press ADD to load it;
+--   * the note's text is the PACKED form below, which fits about 35 layers. A
+--     stack too big even for that gets a plain message instead of a cut-off JSON.
+--
+-- Packed form (ADD reads it too; the shared start and end of every URL are
+-- written once, defaults are left out, keys are short):
+--   {"stack":1,"map":"radu","w":2520,"h":1800,
+--    "pre":"https://upload.zaes.dev/i/","suf":".webp",
+--    "L":[{"n":"hill","u":"5c6f3214154eeab0","h":0.4},
+--         {"n":"wall","u":"7eee0e43c89b60cf","h":"0.5*3","on":"hill","y":0.1}],
+--    "tts":{"o":[x,y,z],"r":180,"s":6.4,"m":15}}
 
 -- Where the panel sits on the object. Object UI is drawn relative to the object,
 -- so these may need adjusting for the object the script is put on.
@@ -494,6 +503,7 @@ end
 function onImportJson(player)
     if not isAuthorized(player) then return end
     local ok, data = pcall(JSON.decode, pasteBuffer)
+    if ok and type(data) == "table" and type(data.L) == "table" then data = unpackStack(data) end
     if not ok or type(data) ~= "table" or type(data.layers) ~= "table" or #data.layers == 0 then
         tell(player, "That is not a stack JSON: expected an object with a non-empty \"layers\" list.", { 1, 0.6, 0.2 })
         return
@@ -582,6 +592,83 @@ end
 -- and paste back with ADD.
 -- The current list and settings as stack JSON: what EDIT AS JSON and SAVE TO
 -- NOTE both write, and what ADD reads back.
+local NOTE_TEXT_LIMIT = 2048 -- measured: TTS cut a saved note's text at this length
+
+local function round(n, places)
+    return tonumber(string.format("%." .. places .. "f", n))
+end
+
+-- The packed form described in the header, as a JSON string.
+function packedStackJson()
+    local urls = {}
+    for i, layer in ipairs(state.layers) do urls[i] = layer.url end
+    -- Shared start, cut back to a "/" so no id is split; shared extension.
+    local pre = urls[1] or ""
+    for _, url in ipairs(urls) do
+        while pre ~= "" and url:sub(1, #pre) ~= pre do pre = pre:sub(1, -2) end
+    end
+    pre = pre:match("^(.*/)") or ""
+    local suf = (urls[1] or ""):match("(%.%w+)$") or ""
+    for _, url in ipairs(urls) do
+        if url:sub(-#suf) ~= suf or #url < #pre + #suf then suf = "" end
+    end
+
+    local L = {}
+    for i, layer in ipairs(state.layers) do
+        local parent = layer.on and state.layers[layerIndexById(layer.on) or 0]
+        L[i] = {
+            n = layer.name,
+            u = layer.url:sub(#pre + 1, #layer.url - #suf),
+            h = layer.copies and heightText(layer) or round(layer.height, 4),
+            y = layer.y ~= 0 and round(layer.y, 4) or nil,
+            on = parent and parent.name or nil,
+        }
+    end
+    local o = state.origin
+    return JSON.encode({
+        stack = 1,
+        map = state.map,
+        w = state.mapWidth,
+        h = state.mapHeight,
+        pre = pre ~= "" and pre or nil,
+        suf = suf ~= "" and suf or nil,
+        L = L,
+        tts = {
+            o = { round(o.x, 3), round(o.y, 3), round(o.z, 3) },
+            r = round(state.rotation, 2),
+            s = round(state.scale, 4),
+            m = state.merge,
+        },
+    })
+end
+
+-- Packed form -> the ordinary stack JSON shape, so one import path reads both.
+function unpackStack(data)
+    local pre, suf = data.pre or "", data.suf or ""
+    local layers = {}
+    for i, e in ipairs(data.L) do
+        if type(e) ~= "table" then
+            layers[i] = e
+        else
+            layers[i] = { name = e.n, url = e.u and (pre .. e.u .. suf) or nil, height = e.h, y = e.y, on = e.on }
+        end
+    end
+    local tts = type(data.tts) == "table" and data.tts or {}
+    local o = type(tts.o) == "table" and tts.o or {}
+    return {
+        map = data.map,
+        width = data.w,
+        height = data.h,
+        layers = layers,
+        stacker = {
+            origin = (o[1] and o[2] and o[3]) and { x = o[1], y = o[2], z = o[3] } or nil,
+            rotation = tts.r,
+            scale = tts.s,
+            merge = tts.m,
+        },
+    }
+end
+
 local function stackJson(compact)
     local layers = {}
     for i, layer in ipairs(state.layers) do
@@ -626,14 +713,18 @@ function onSaveToNote(player)
     local title = "Diorama stack: " .. (state.map or "untitled") .. " (" .. os.date("%Y-%m-%d %H:%M") .. ")"
     local note = spawnObject({ type = "Notecard", position = { p.x + 3, p.y + 1, p.z }, sound = false })
     note.setName(title)
-    -- The full stack goes in the memo, which TTS keeps whole; the text is a
-    -- compact copy that TTS may cut short on a big stack.
-    local json = stackJson(true)
-    note.memo = json
-    note.setDescription(json)
+    -- The memo holds the full stack whatever its size. The text is the packed
+    -- form when that fits under TTS's limit, and otherwise says where the stack is
+    -- rather than showing a JSON that stops halfway.
     local guid = note.getGUID()
-    tell(player, "Saved " .. #state.layers .. " layer(s) to note " .. guid
-        .. ". To load it later, paste " .. guid .. " in the box and press ADD.")
+    local packed = packedStackJson()
+    note.memo = packed
+    local fits = #packed <= NOTE_TEXT_LIMIT
+    note.setDescription(fits and packed or ("This stack (" .. #state.layers .. " layers) is too long for a note's text. "
+        .. "It is stored whole inside this note: paste " .. guid .. " into the Diorama Stacker's box and press ADD."))
+    tell(player, "Saved " .. #state.layers .. " layer(s) to note " .. guid .. " ("
+        .. (fits and "the note's text is the full stack" or "too long to show, stored inside the note")
+        .. "). To load it, paste " .. guid .. " or the note's text into the box and press ADD.")
 end
 
 -- Two presses, because it throws away every height and Y typed so far. Spawned
