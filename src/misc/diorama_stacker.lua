@@ -638,7 +638,9 @@ function build(player)
                 type = "Custom_Token",
                 position = { o.x, o.y, o.z },
                 rotation = { 0, state.rotation, 0 },
-                scale = { s, s, s },
+                -- Y stays 1: a piece's height comes from its thickness alone, so the
+                -- Scale field only sizes the diorama across the table.
+                scale = { s, 1, s },
                 sound = false,
             })
             obj.setCustomObject({
