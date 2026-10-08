@@ -67,7 +67,14 @@ function onLoad(saved_data)
         })
     end)
 
-    if saved_data then SAVED_DATA = JSON.decode(saved_data) end
+    -- An empty or unreadable save decodes to nil: keep the defaults from config.
+    if saved_data and saved_data ~= "" then
+        local decoded = JSON.decode(saved_data)
+        if type(decoded) == "table" then
+            SAVED_DATA = decoded
+            SAVED_DATA.PLAYER = SAVED_DATA.PLAYER or {}
+        end
+    end
 end
 
 -- Event Handlers for bags
