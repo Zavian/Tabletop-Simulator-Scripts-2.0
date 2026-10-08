@@ -26,8 +26,11 @@
 -- in the full image's frame. If layers ever appear offset from each other in
 -- game, that assumption is the place to look.
 --
--- Pieces are tagged with this object's GUID in `memo`, so CLEAR finds them even
--- after a reload or a copy/paste of the controller.
+-- Pieces are tagged in `memo` with this object's GUID and their layer's id
+-- ("<guid>|<id>"), so CLEAR finds them even after a reload or a copy/paste of
+-- the controller, and clicking a layer's name highlights and pings its pieces.
+-- The id is stable, not the row number: removing a row would otherwise point
+-- every row below it at its neighbour's pieces.
 --
 -- Stack JSON. Scriptorium's diorama export can upload every layer to
 -- upload.zaes.dev and hand back a JSON document; paste it in the box and press
@@ -58,6 +61,7 @@ local state = {
     rotation = 0,
     scale = 1,
     merge = 15, -- TTS's own default merge distance
+    nextId = 1, -- for layer ids; see the header
 }
 
 local pasteBuffer = ""
@@ -111,6 +115,31 @@ local function xmlEscape(s)
         :gsub('"', "&quot;"))
 end
 
+local HIGHLIGHT_COLOR = { 1, 0.85, 0.1 }
+local HIGHLIGHT_SECONDS = 3
+
+-- Every layer gets an id once, whichever way it arrived (links, JSON, an old save).
+local function ensureLayerIds()
+    for _, layer in ipairs(state.layers) do
+        if layer.id == nil then
+            layer.id = state.nextId
+            state.nextId = state.nextId + 1
+        end
+    end
+end
+
+local function pieceTag(layer)
+    return self.getGUID() .. "|" .. layer.id
+end
+
+-- True for anything this controller spawned. A bare GUID is what builds made
+-- before pieces carried their layer id.
+local function isOurPiece(obj)
+    local guid = self.getGUID()
+    local memo = obj.memo
+    return memo == guid or (type(memo) == "string" and memo:sub(1, #guid + 1) == guid .. "|")
+end
+
 local function indexFromId(id)
     return tonumber(id:match("_(%d+)$"))
 end
@@ -158,6 +187,7 @@ local function label(text, width, extra)
 end
 
 function rebuildUI()
+    ensureLayerIds()
     local rows = {}
     for i, layer in ipairs(state.layers) do
         local count = splitHeight(layer.height)
@@ -170,7 +200,9 @@ function rebuildUI()
     <Button id="rm_%d" text="X" preferredWidth="30" onClick="onRemoveLayer" colors="#EF4444|#DC2626|#B91C1C|#EF444480" />
 </HorizontalLayout>]],
             ROW_HEIGHT,
-            label(i .. ". " .. layer.name, 250, 'alignment="MiddleLeft" tooltip="' .. xmlEscape(layer.url) .. '"'),
+            string.format(
+                '<Button id="nm_%d" preferredWidth="250" textAlignment="MiddleLeft" fontStyle="Normal" colors="#00000000|#FFFFFF1A|#FFFFFF33|#00000000" onClick="onSelectLayer" tooltip="Click to highlight and ping its pieces. %s">%s</Button>',
+                i, xmlEscape(layer.url), xmlEscape(i .. ". " .. layer.name)),
             input("h_" .. i, fmt(layer.height), 80, "onLayerHeight"),
             input("y_" .. i, fmt(layer.y), 80, "onLayerY"),
             label(count > 1 and ("x" .. count) or "", 50, 'class="dim"'),
@@ -328,6 +360,31 @@ function onClearLayers(player)
     rebuildUI()
 end
 
+-- Highlights every built piece of a layer and pings the top of the stack.
+function onSelectLayer(player, _, id)
+    if not isAuthorized(player) then return end
+    local layer = state.layers[indexFromId(id)]
+    if not layer then return end
+    local tag = pieceTag(layer)
+    local top, topY
+    local count = 0
+    for _, obj in ipairs(getObjects()) do
+        if obj.memo == tag then
+            obj.highlightOn(HIGHLIGHT_COLOR, HIGHLIGHT_SECONDS)
+            count = count + 1
+            local bounds = obj.getBounds()
+            local y = bounds.center.y + bounds.size.y / 2
+            if top == nil or y > topY then top, topY = bounds.center, y end
+        end
+    end
+    if count == 0 then
+        tell(player, layer.name .. " has no pieces. BUILD first.", { 1, 0.6, 0.2 })
+        return
+    end
+    player.pingTable({ top.x, topY, top.z })
+    tell(player, layer.name .. ": " .. count .. " piece(s).")
+end
+
 function onRemoveLayer(player, _, id)
     if not isAuthorized(player) then return end
     local i = indexFromId(id)
@@ -420,10 +477,9 @@ end
 
 function clearPieces()
     buildId = buildId + 1
-    local guid = self.getGUID()
     local removed = 0
     for _, obj in ipairs(getObjects()) do
-        if obj.memo == guid then
+        if isOurPiece(obj) then
             obj.destruct()
             removed = removed + 1
         end
@@ -462,7 +518,7 @@ function build(player)
             })
             obj.setLock(true)
             obj.setName(count > 1 and string.format("%s (%d/%d)", layer.name, c, count) or layer.name)
-            obj.memo = self.getGUID()
+            obj.memo = pieceTag(layer)
             pieces[#pieces + 1] = { obj = obj, layer = i, thickness = thickness }
         end
     end
