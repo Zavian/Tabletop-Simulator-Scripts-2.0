@@ -74,7 +74,7 @@ local MIN_THICKNESS = 0.1
 local MAX_THICKNESS = 1
 local MAX_COPIES = 20 -- a typo of 200 should not spawn 200 tokens
 local LOAD_TIMEOUT = 60 -- seconds to wait for every image to load
-local PANEL_WIDTH = 690
+local PANEL_WIDTH = 750
 local ROW_HEIGHT = 30
 
 local state = {
@@ -93,6 +93,7 @@ local state = {
 local pasteBuffer = ""
 local clearLayersArmed = false
 local pickFor = nil -- id of the layer whose PICK is waiting for a click on another name
+local copyFrom = nil -- id of the layer whose COPY is pasting its height onto clicked names
 local syncToken = 0 -- debounces live updates
 local buildId = 0 -- bumped on every build/clear so a stale build stops placing
 local status = "Paste links and press ADD."
@@ -331,6 +332,7 @@ function rebuildUI()
  %s
     %s
     %s
+    %s
  %s
     %s
     %s
@@ -341,6 +343,9 @@ function rebuildUI()
                 '<Button id="nm_%d" preferredWidth="210" textAlignment="MiddleLeft" fontStyle="Normal" colors="' .. NAME_COLORS .. '" textColor="' .. NAME_TEXT_COLOR .. '" onClick="onSelectLayer" tooltip="Click to highlight and ping its pieces. %s">%s</Button>',
                 i, xmlEscape(layer.url), xmlEscape(i .. ". " .. layer.name)),
             input("h_" .. i, heightText(layer), 80, "onLayerHeight", "None"),
+            string.format('<Button id="cp_%d" preferredWidth="50" fontSize="11" onClick="onCopyHeight" colors="%s" textColor="%s" tooltip="Then click the names of the layers to give this height to">COPY</Button>',
+                i, copyFrom == layer.id and "#FFD91A|#FFE45C|#E6C200|#FFD91A80" or "#272A34|#3B3E4D|#1A1C23|#272A3480",
+                copyFrom == layer.id and "#000000" or "#FFFFFF"),
             input("y_" .. i, fmt(layer.y), 80, "onLayerY"),
             sitsOnDropdown(i, layer),
             string.format('<Button id="pk_%d" preferredWidth="46" fontSize="11" onClick="onPickParent" colors="%s" textColor="%s" tooltip="Then click the name of the layer this one sits on">PICK</Button>',
@@ -386,7 +391,7 @@ function rebuildUI()
         %s %s %s %s %s %s
     </HorizontalLayout>
     <HorizontalLayout preferredHeight="20" spacing="6" childForceExpandWidth="false">
-        %s %s %s %s %s %s
+        %s %s %s %s %s %s %s
     </HorizontalLayout>
     %s
     <Text id="txt_status" class="dim" preferredHeight="36">%s</Text>
@@ -402,6 +407,7 @@ function rebuildUI()
         label("Merge px", 70), input("merge", fmt(state.merge), 80, "onMerge", "Integer"),
         label("Layer", 210, 'class="dim" alignment="MiddleLeft"'),
         label("Height", 80, 'class="dim"'),
+        label("", 50),
         label("Y", 80, 'class="dim"'),
         label("Sits on", 130, 'class="dim"'),
         label("", 46),
@@ -657,6 +663,23 @@ function onSelectLayer(player, _, id)
     if not isAuthorized(player) then return end
     local layer = state.layers[indexFromId(id)]
     if not layer then return end
+    if copyFrom ~= nil then
+        local sourceIndex = layerIndexById(copyFrom)
+        local source = sourceIndex and state.layers[sourceIndex]
+        if not source or source == layer then
+            copyFrom = nil
+            status = "Copy finished."
+            rebuildUI()
+            return
+        end
+        -- Stays armed, so one height can go to several layers in a row.
+        layer.height, layer.copies = source.height, source.copies
+        status = layer.name .. " now has " .. source.name .. "'s height (" .. heightText(source)
+            .. "). Click more names, or COPY again to stop."
+        rebuildUI()
+        scheduleSync(player)
+        return
+    end
     if pickFor ~= nil then
         local childIndex = layerIndexById(pickFor)
         pickFor = nil
@@ -757,12 +780,31 @@ function onPickParent(player, _, id)
     if not isAuthorized(player) then return end
     local layer = layerAt(id)
     if not layer then return end
+    copyFrom = nil
     if pickFor == layer.id then
         pickFor = nil
         status = "Pick cancelled."
     else
         pickFor = layer.id
         status = "Click the name of the layer " .. layer.name .. " sits on."
+    end
+    rebuildUI()
+end
+
+-- COPY arms the row; every click on another layer's name then gives that layer
+-- this one's height (copies included, so 0.1*3 stays 0.1*3) instead of pinging.
+-- Pressing COPY again, or clicking its own name, stops.
+function onCopyHeight(player, _, id)
+    if not isAuthorized(player) then return end
+    local layer = layerAt(id)
+    if not layer then return end
+    pickFor = nil
+    if copyFrom == layer.id then
+        copyFrom = nil
+        status = "Copy finished."
+    else
+        copyFrom = layer.id
+        status = "Click the names of the layers to give " .. layer.name .. "'s height (" .. heightText(layer) .. ") to."
     end
     rebuildUI()
 end
