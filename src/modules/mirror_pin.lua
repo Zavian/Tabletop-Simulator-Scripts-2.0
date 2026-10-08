@@ -10,7 +10,19 @@ require("src.data.config")
 
 local utils = require("src.core.utils")
 
+-- Warns in chat when Global runs a different board mirror version than this
+-- pin, which otherwise shows up as odd menus and links that do not work.
+local function checkVersion()
+    local ok, globalVersion = pcall(function() return Global.call("boardMirror_version") end)
+    if not ok or globalVersion ~= BOARD_MIRROR_VERSION then
+        print("[ff6a00](Board mirror)[ffffff] Pin is v" .. BOARD_MIRROR_VERSION
+            .. " but Global is " .. (ok and globalVersion and ("v" .. tostring(globalVersion)) or "older")
+            .. ": re-bundle and update both.")
+    end
+end
+
 function onLoad()
+    checkVersion()
     self.addTag(OBJECT_TAGS.board_mirror_master)
     self.setInvisibleTo(utils.hideFromPlayersArray())
     -- Once initialized, Global replaces this menu with the full one (which
