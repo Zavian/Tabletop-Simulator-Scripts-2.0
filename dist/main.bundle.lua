@@ -299,6 +299,7 @@ function boardMirror_noop() end
 local TICK = 0.05
 local SHADOW_THICKNESS = 0.05
 local LABEL_HEIGHT = 0.15
+local HIGHLIGHT_TIME = 0.25
 
 local PLAYER_COLOR = CONFIG.palette.blue.rgb
 local FLIPPED_COLOR = CONFIG.palette.fuchsia.rgb
@@ -513,6 +514,12 @@ local function placeGhost(g, token, masterBoard, slaveBoard)
     local yaw = rot.y - masterBoard.getRotation().y + slaveBoard.getRotation().y
     obj.setRotation(Vector(0, yaw, 0))
     obj.setPosition(world)
+
+    -- Highlighted in the holder's color while the token is carried. Each tick
+    -- renews it; it fades out on its own once the token is let go.
+    if token.held_by_color then
+        obj.highlightOn(Color.fromString(token.held_by_color), HIGHLIGHT_TIME)
+    end
 
     local color = tokenColor(token)
     if g.color ~= color:toHex() then
