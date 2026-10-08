@@ -652,6 +652,7 @@ local function refreshLink(id)
     end
 end
 
+-- Pins are only ever seen by Black; "hide pins" hides them from Black too.
 local function applyHidden(pin, hidden)
     if hidden then
         pin.setLock(true)
@@ -659,7 +660,7 @@ local function applyHidden(pin, hidden)
         pin.setInvisibleTo(utils.allPlayersArray())
     else
         pin.interactable = true
-        pin.setInvisibleTo({})
+        pin.setInvisibleTo(utils.hideFromPlayersArray())
     end
 end
 
@@ -748,6 +749,9 @@ local function registerPin(pin)
     else
         return
     end
+    -- Invisibility is not saved with the object, so it is applied every time.
+    local board = (state.masters[guid] or state.slaves[guid]).board
+    applyHidden(pin, board ~= nil and state.hidden[board] == true)
     addPinMenu(pin)
 end
 
@@ -1021,7 +1025,8 @@ function BoardMirror.onPing(player, position, object)
     if state == nil or echoing then return end
     position = Vector(position)
 
-    local pinGuid = pingedPin(position, object)
+    -- Only Black sees pins, so only Black's pings can land on one.
+    local pinGuid = player.color == "Black" and pingedPin(position, object) or nil
     if pinGuid then
         local targets = {}
         if state.slaves[pinGuid] then
