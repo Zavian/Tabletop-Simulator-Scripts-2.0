@@ -363,7 +363,8 @@ function name_without_black_name(name)
     return name_without_black
 end
 
-local ICON_BASE = "http://127.0.0.1:8765/"
+-- Icons8 glyphs (https://icons8.com), see assets/icons/README.md.
+local ICON_BASE = "https://raw.githubusercontent.com/Zavian/Tabletop-Simulator-Scripts-2.0/master/assets/icons/"
 
 local function icon(name, state)
     return ICON_BASE .. "mon-" .. name .. "-" .. state .. ".png"
