@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tts": {
+      "command": "node",
+      "args": [".server/server.mjs"]
+    }
+  }
+}
