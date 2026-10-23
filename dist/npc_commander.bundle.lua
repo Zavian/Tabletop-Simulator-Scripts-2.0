@@ -1727,6 +1727,11 @@ CONFIG = {
     }
 }
 
+-- Board mirror version, shared by Global (src/core/board_mirror.lua) and the
+-- mirror pin (src/modules/mirror_pin.lua) so a stale script on either side is
+-- easy to spot. Bump it with every board mirror change.
+BOARD_MIRROR_VERSION = 27
+
 OBJECT_TAGS = {
     npc_commander = "npc_commander",
     clever_notecard = "clever_notecard",
@@ -1737,7 +1742,10 @@ OBJECT_TAGS = {
     infinite_container = "infinite_container",
     movement_measurement = "movement_measurement",
     flying = "flying",
-    player = "player_token"
+    player = "player_token",
+    board_mirror_master = "board_mirror_master",
+    board_mirror_slave = "board_mirror_slave",
+    board_mirror_ghost = "board_mirror_ghost"
 }
 
 SAVED_DATA = {
