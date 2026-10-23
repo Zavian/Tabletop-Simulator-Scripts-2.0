@@ -686,18 +686,35 @@ end
 
 local renderBlocks
 
+-- A table row becomes a card: the first cell as a gold name, every other cell as a field with its
+-- column heading in an aligned label column. The accent bar on the left makes each card scan as one unit.
+local TABLE_CARD, TABLE_NAME = "#ffffff12", "#f2cf74"
+
 local function renderTable(L, b, ctx)
     local head = b.rows[1] or {}
+    local labels, labelWidth = {}, 48
+    for c = 2, #head do
+        local label = (inline(head[c] or "", {}):gsub("</?b>", ""))
+        labels[c] = label
+        labelWidth = math.max(labelWidth, math.floor(#label * (L.body - 2) * 0.62) + 6)
+    end
     local out = {}
     for r = 2, #b.rows do
-        local row, lines, links = b.rows[r], {}, {}
-        lines[1] = "<b>" .. inline(row[1] or "", links) .. "</b>"
+        local row, links = b.rows[r], {}
+        local card = { '<HorizontalLayout color="' .. TABLE_CARD .. '" spacing="0" childForceExpandWidth="false" childForceExpandHeight="false">',
+            '<Image color="' .. GOLD .. '" preferredWidth="4" minWidth="4" />',
+            '<VerticalLayout padding="12 12 10 10" spacing="4" childForceExpandHeight="false">',
+            text("<b>" .. inline(row[1] or "", links) .. "</b>", L.body + 3, TABLE_NAME) }
         for c = 2, #row do
-            local label = inline(head[c] or "", {}):gsub("</?b>", "")
-            lines[#lines + 1] = "<color=" .. MUTED .. ">" .. label .. "</color>   " .. inline(row[c], links)
+            if row[c] ~= "" then
+                card[#card + 1] = '<HorizontalLayout spacing="10" childForceExpandWidth="false" childForceExpandHeight="false" childAlignment="UpperLeft">'
+                    .. text(labels[c] or "", L.body - 2, MUTED, ' preferredWidth="' .. labelWidth .. '" minWidth="' .. labelWidth .. '"')
+                    .. text(inline(row[c], links), L.body, INK, ' flexibleWidth="1"') .. "</HorizontalLayout>"
+            end
         end
-        out[#out + 1] = '<VerticalLayout color="' .. CARD .. '" padding="12 12 8 8" spacing="6" childForceExpandHeight="false">'
-            .. text(table.concat(lines, "\n"), L.body) .. chips(L, links, ctx.width - 24, ctx.self) .. "</VerticalLayout>"
+        card[#card + 1] = chips(L, links, ctx.width - 28, ctx.self)
+        card[#card + 1] = "</VerticalLayout></HorizontalLayout>"
+        out[#out + 1] = table.concat(card)
     end
     return table.concat(out)
 end
