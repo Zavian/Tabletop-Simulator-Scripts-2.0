@@ -424,42 +424,37 @@ local BADGE_SIZE, BADGE_GAP = 52, 6
 local ROWS_WIDTH = PLATE_WIDTH - BADGE_SIZE - BADGE_GAP
 local TRACK_WIDTH = ROWS_WIDTH - 2 * (STEP_SIZE + STEP_GAP)
 local PIP_GAP, PIP_PAD, PIP_MAX_CELL = 2, 2, 28
--- Past SEGMENT_FROM pips the glyphs get too small to read, so the row switches to tall flat segments.
-local SEGMENT_FROM, SEGMENT_HEIGHT = 9, 24
-local SEGMENT_COLORS = {
-    hp = {filled = "#F87171", empty = "#262833"},
-    stress = {filled = "#FBBF24", empty = "#262833"},
-}
+-- Up to ICON_MAX pips the row shows icons; past that it shows a "current/max" number in the icon's color.
+local ICON_MAX = 6
+local NUMBER_COLORS = {hp = "#F87171", stress = "#FBBF24"}
 
-local function isSegmented(amount)
-    return (tonumber(amount) or 1) >= SEGMENT_FROM
+local function isNumeric(amount)
+    return (tonumber(amount) or 1) > ICON_MAX
 end
 
--- Always one row at a fixed width: icon pips shrink up to SEGMENT_FROM, then tall segments take over.
+-- One row at a fixed width; icon pips shrink to fit up to ICON_MAX.
 local function pipLayout(amount)
     amount = math.max(1, tonumber(amount) or 1)
-    local segmented = isSegmented(amount)
-    local gap = segmented and 2 or PIP_GAP
-    local width = math.floor((TRACK_WIDTH - 2 * PIP_PAD - gap * (amount - 1)) / amount * 10) / 10
-    local cellW = segmented and width or math.min(PIP_MAX_CELL, width)
-    local cellH = segmented and SEGMENT_HEIGHT or cellW
-    return amount, cellW, cellH, gap, math.max(STEP_SIZE, cellH + 2 * PIP_PAD)
+    local width = math.floor((TRACK_WIDTH - 2 * PIP_PAD - PIP_GAP * (amount - 1)) / amount * 10) / 10
+    local cell = math.min(PIP_MAX_CELL, width)
+    return amount, cell, math.max(STEP_SIZE, cell + 2 * PIP_PAD)
 end
 
 -- Every pip is a near-black silhouette of the glyph (fills hollow outlines, rims solid ones) under the icon.
 local function pipsXml(kind, current, amount)
     local out = {}
-    local segmented = isSegmented(amount)
     for i = 1, math.max(1, tonumber(amount) or 1) do
         local state = i <= (tonumber(current) or 0) and "filled" or "empty"
-        if segmented then
-            out[#out + 1] = '<Panel color="#05060A" padding="2"><Image id="' .. kind .. '_' .. i .. '" color="' .. SEGMENT_COLORS[kind][state] .. '" /></Panel>'
-        else
-            out[#out + 1] = '<Panel><Image image="' .. icon(kind, "filled") .. '" color="#05060A" preserveAspect="true" />'
-                .. '<Panel padding="2"><Image id="' .. kind .. '_' .. i .. '" image="' .. icon(kind, state) .. '" preserveAspect="true" /></Panel></Panel>'
-        end
+        out[#out + 1] = '<Panel><Image image="' .. icon(kind, "filled") .. '" color="#05060A" preserveAspect="true" />'
+            .. '<Panel padding="2"><Image id="' .. kind .. '_' .. i .. '" image="' .. icon(kind, state) .. '" preserveAspect="true" /></Panel></Panel>'
     end
     return table.concat(out)
+end
+
+local function numberXml(kind, current, amount)
+    return '<Text id="num_' .. kind .. '" preferredWidth="' .. TRACK_WIDTH .. '" preferredHeight="' .. STEP_SIZE .. '" minWidth="' .. TRACK_WIDTH .. '"'
+        .. ' fontSize="26" fontStyle="Bold" alignment="MiddleCenter" color="' .. NUMBER_COLORS[kind] .. '" outline="#05060A" outlineSize="2 2">'
+        .. (tonumber(current) or 0) .. '/' .. amount .. '</Text>'
 end
 
 local function stepButton(id, handler, label)
@@ -469,15 +464,17 @@ local function stepButton(id, handler, label)
 end
 
 local function barRow(kind, current, amount, decId, decFn, incId, incFn)
-    local columns, cellW, cellH, gap, height = pipLayout(amount)
+    local height, track = STEP_SIZE, numberXml(kind, current, amount)
+    if not isNumeric(amount) then
+        local columns, cell
+        columns, cell, height = pipLayout(amount)
+        track = '<GridLayout id="small' .. kind .. '" cellSize="' .. cell .. ' ' .. cell .. '" spacing="' .. PIP_GAP .. ' ' .. PIP_GAP .. '"'
+            .. ' constraint="FixedColumnCount" constraintCount="' .. columns .. '" childAlignment="MiddleCenter"'
+            .. ' preferredWidth="' .. TRACK_WIDTH .. '" preferredHeight="' .. height .. '" minWidth="' .. TRACK_WIDTH .. '" padding="' .. PIP_PAD .. '">'
+            .. pipsXml(kind, current, amount) .. '</GridLayout>'
+    end
     return '<HorizontalLayout preferredHeight="' .. height .. '" childForceExpandWidth="false" childForceExpandHeight="false" childAlignment="MiddleCenter" spacing="' .. STEP_GAP .. '">'
-        .. stepButton(decId, decFn, "-")
-        .. '<GridLayout id="small' .. kind .. '" cellSize="' .. cellW .. ' ' .. cellH .. '" spacing="' .. gap .. ' ' .. gap .. '"'
-        .. ' constraint="FixedColumnCount" constraintCount="' .. columns .. '" childAlignment="MiddleCenter"'
-        .. ' preferredWidth="' .. TRACK_WIDTH .. '" preferredHeight="' .. height .. '" minWidth="' .. TRACK_WIDTH .. '" padding="' .. PIP_PAD .. '">'
-        .. pipsXml(kind, current, amount)
-        .. '</GridLayout>'
-        .. stepButton(incId, incFn, "+")
+        .. stepButton(decId, decFn, "-") .. track .. stepButton(incId, incFn, "+")
         .. '</HorizontalLayout>', height
 end
 
@@ -500,6 +497,7 @@ end
 
 -- Translucent backdrop behind the bars; only the GM sees them, so it can stay.
 local BACKDROP_PAD, BACKDROP_COLOR = 8, "#0B0C12B3"
+
 
 local function mainXml()
         local hpRow, hpHeight = barRow("hp", data.hp, data.maxHp, "decHPSmall", "decreaseHP", "incHPSmall", "increaseHP")
@@ -536,14 +534,12 @@ local function mainXml()
 end
 
 function refreshPips(kind, current, amount)
-    local segmented = isSegmented(amount)
+    if isNumeric(amount) then
+        self.UI.setValue("num_" .. kind, tonumber(current) .. "/" .. tonumber(amount))
+        return
+    end
     for i = 1, tonumber(amount) or 0 do
-        local state = i <= tonumber(current) and "filled" or "empty"
-        if segmented then
-            self.UI.setAttribute(kind .. "_" .. i, "color", SEGMENT_COLORS[kind][state])
-        else
-            self.UI.setAttribute(kind .. "_" .. i, "image", icon(kind, state))
-        end
+        self.UI.setAttribute(kind .. "_" .. i, "image", icon(kind, i <= tonumber(current) and "filled" or "empty"))
     end
 end
 
