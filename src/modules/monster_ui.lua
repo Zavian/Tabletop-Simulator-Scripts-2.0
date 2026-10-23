@@ -380,9 +380,10 @@ local BADGE_SIZE, BADGE_GAP = 52, 6
 local ROWS_WIDTH = PLATE_WIDTH - BADGE_SIZE - BADGE_GAP
 local TRACK_WIDTH = ROWS_WIDTH - 2 * (STEP_SIZE + STEP_GAP)
 local PIP_GAP, PIP_PAD, PIP_MAX_CELL = 2, 2, 28
--- Up to ICON_MAX pips the row shows icons; past that it shows a "current/max" number in the icon's color.
-local ICON_MAX = 6
+-- Up to ICON_MAX pips the row shows icons; past that it shows flat segments with the "current/max" number over them.
+local ICON_MAX, SEGMENT_HEIGHT = 6, 22
 local NUMBER_COLORS = {hp = "#F87171", stress = "#FBBF24"}
+local SEGMENT_EMPTY = "#262833"
 
 local function isNumeric(amount)
     return (tonumber(amount) or 1) > ICON_MAX
@@ -407,10 +408,20 @@ local function pipsXml(kind, current, amount)
     return table.concat(out)
 end
 
-local function numberXml(kind, current, amount)
-    return '<Text id="num_' .. kind .. '" preferredWidth="' .. TRACK_WIDTH .. '" preferredHeight="' .. STEP_SIZE .. '" minWidth="' .. TRACK_WIDTH .. '"'
-        .. ' fontSize="26" fontStyle="Bold" alignment="MiddleCenter" color="' .. NUMBER_COLORS[kind] .. '" outline="#05060A" outlineSize="2 2">'
-        .. (tonumber(current) or 0) .. '/' .. amount .. '</Text>'
+-- Segments (ids <kind>_<i>) behind a current/max label (id num_<kind>), so the bar and the exact value both read at a glance.
+local function segmentsXml(kind, current, amount)
+    local gap = 2
+    local width = math.floor((TRACK_WIDTH - 2 * PIP_PAD - gap * (amount - 1)) / amount * 10) / 10
+    local out = {}
+    for i = 1, amount do
+        local color = i <= (tonumber(current) or 0) and NUMBER_COLORS[kind] or SEGMENT_EMPTY
+        out[#out + 1] = '<Panel color="#05060A" padding="2"><Image id="' .. kind .. '_' .. i .. '" color="' .. color .. '" /></Panel>'
+    end
+    return '<Panel preferredWidth="' .. TRACK_WIDTH .. '" preferredHeight="' .. STEP_SIZE .. '" minWidth="' .. TRACK_WIDTH .. '">'
+        .. '<GridLayout cellSize="' .. width .. ' ' .. SEGMENT_HEIGHT .. '" spacing="' .. gap .. ' ' .. gap .. '" constraint="FixedColumnCount" constraintCount="' .. amount
+        .. '" childAlignment="MiddleCenter" padding="' .. PIP_PAD .. '">' .. table.concat(out) .. '</GridLayout>'
+        .. '<Text id="num_' .. kind .. '" fontSize="24" fontStyle="Bold" alignment="MiddleCenter" color="#FFFFFF" outline="#05060A" outlineSize="3 3">'
+        .. (tonumber(current) or 0) .. '/' .. amount .. '</Text></Panel>'
 end
 
 local function stepButton(id, handler, label)
@@ -420,7 +431,7 @@ local function stepButton(id, handler, label)
 end
 
 local function barRow(kind, current, amount, decId, decFn, incId, incFn)
-    local height, track = STEP_SIZE, numberXml(kind, current, amount)
+    local height, track = STEP_SIZE, segmentsXml(kind, current, amount)
     if not isNumeric(amount) then
         local columns, cell
         columns, cell, height = pipLayout(amount)
@@ -490,13 +501,16 @@ local function mainXml()
 end
 
 function refreshPips(kind, current, amount)
-    if isNumeric(amount) then
-        self.UI.setValue("num_" .. kind, tonumber(current) .. "/" .. tonumber(amount))
-        return
-    end
+    local numeric = isNumeric(amount)
     for i = 1, tonumber(amount) or 0 do
-        self.UI.setAttribute(kind .. "_" .. i, "image", icon(kind, i <= tonumber(current) and "filled" or "empty"))
+        local filled = i <= tonumber(current)
+        if numeric then
+            self.UI.setAttribute(kind .. "_" .. i, "color", filled and NUMBER_COLORS[kind] or SEGMENT_EMPTY)
+        else
+            self.UI.setAttribute(kind .. "_" .. i, "image", icon(kind, filled and "filled" or "empty"))
+        end
     end
+    if numeric then self.UI.setValue("num_" .. kind, tonumber(current) .. "/" .. tonumber(amount)) end
 end
 
 -- Max HP / stress changed: the pip grid size changes, so the whole panel is rebuilt.
