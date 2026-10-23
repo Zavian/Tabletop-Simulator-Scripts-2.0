@@ -178,8 +178,35 @@ local linked = nil
 local showing_ui = false
 
 
+-- Where the stats panel sits relative to the checker. "up" is the original spot; the others keep the same gap.
+local PANEL_POSITIONS = {
+    up = "0 330 -50",
+    down = "0 -330 -50",
+    left = "-356 0 -50",
+    right = "356 0 -50"
+}
+local PANEL_DIRECTIONS = {"up", "down", "left", "right"}
+
+local function applyPanelDirection(direction)
+    self.UI.setAttribute("StatsPanel", "position", PANEL_POSITIONS[direction] or PANEL_POSITIONS.up)
+end
+
+local function buildPanelMenu()
+    local current = (utils.getData(self) or {}).panel_direction or "up"
+    self.clearContextMenu()
+    for _, direction in ipairs(PANEL_DIRECTIONS) do
+        local mark = direction == current and "● " or "○ "
+        self.addContextMenuItem(mark .. "Panel grows " .. direction, function()
+            utils.appendData(self, { panel_direction = direction })
+            applyPanelDirection(direction)
+            buildPanelMenu()
+        end)
+    end
+end
+
 function onLoad()
     utils.setXML(self, self)
+    buildPanelMenu()
 
     Wait.frames(function()
         local guid = self.getGUID()
@@ -208,6 +235,7 @@ function onLoad()
         -- self.UI.hide("ConditionMenu")
         -- self.UI.hide("ReminderMenu")
 
+        applyPanelDirection((utils.getData(self) or {}).panel_direction)
         hidePanel("StatsPanel")
 
     end, 20)
