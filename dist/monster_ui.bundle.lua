@@ -152,28 +152,28 @@ function decreaseHP()
 end
 
 function Injector_setMaxHP(amount)
-    print("setMaxHP function")
-    print("amount:", amount)
     if (data.hp == data.maxHp) then
-        print("data.hp equals data.maxHp")
         data.hp = tonumber(amount)
     end
     data.maxHp = tonumber(amount)
-    local vals = {
-        scale=2.1/amount.." 0.35 0.25",
-        width=100*amount
-    }
-    log(vals, "vals")
-    local smallvals = {
-        scale=1.45/amount.." 0.25 0.5",
-        width=100*amount
-    }
     if (tonumber(data.hp) > tonumber(amount)) then
-        print("data.hp is greater than amount")
         data.hp = tonumber(amount)
     end
     changeHP(0)
-    self.UI.setAttributes("smallhp", smallvals)
+    rebuildUI()
+    updateSave()
+end
+
+function Injector_setMaxStress(amount)
+    if (data.stress == data.maxStress) then
+        data.stress = tonumber(amount)
+    end
+    data.maxStress = tonumber(amount)
+    if (tonumber(data.stress) > tonumber(amount)) then
+        data.stress = tonumber(amount)
+    end
+    changeStress(0)
+    rebuildUI()
     updateSave()
 end
 
@@ -181,12 +181,9 @@ function changeHP(amount)
     data.hp = tonumber(data.hp)+tonumber(amount)
     if (tonumber(data.hp) <= 0) then
         data.hp = 0
-        self.UI.setAttribute("smallHp", "color", "#ff0000ff")
-    else
-        self.UI.setAttribute("smallHp", "color", "Black")
     end
     if (tonumber(data.hp) > tonumber(data.maxHp)) then data.hp = data.maxHp end
-    self.UI.setValue("smallhp", barString("□", "■", data.hp, data.maxHp))
+    refreshPips("hp", data.hp, data.maxHp)
 
     if (tonumber(data.hp) < tonumber(data.maxHp)/2) then
         toggleCondition("bloodied", "true")
@@ -216,9 +213,6 @@ function changeStress(amount)
     data.stress = data.stress+amount
     if (tonumber(data.stress) <= 0) then
         data.stress = 0
-        self.UI.setAttribute("smallstress", "color", "#ff6a00ff")
-    else
-        self.UI.setAttribute("smallstress", "color", "Black")
     end
     if (tonumber(data.stress) > tonumber(data.maxStress)) then data.stress = data.maxStress end
 
@@ -233,7 +227,7 @@ function changeStress(amount)
         toggleCondition("vulnerable", "true")
     end 
 
-    self.UI.setValue("smallstress", barString("□", "■", data.stress, data.maxStress))
+    refreshPips("stress", data.stress, data.maxStress)
 
     event.broadcast(
         event.EVENT_NAMES.monster_stress_update,
@@ -413,6 +407,176 @@ function name_without_black_name(name)
     return name_without_black
 end
 
+-- Icons8 glyphs (https://icons8.com), hosted on upload.zaes.dev; sources in assets/icons (see README).
+local ICON_BASE = "https://upload.zaes.dev/i/tts-monster-icons-png/"
+
+local function icon(name, state)
+    return ICON_BASE .. "mon-" .. name .. "-" .. state .. ".png"
+end
+
+local function conditionIcon(name)
+    return ICON_BASE .. "mon-" .. name .. ".png"
+end
+
+-- Layout in real units (the container is drawn at scale 1 so text and glyphs rasterize crisp). Compact: badge left, HP over stress right.
+local PLATE_WIDTH, STEP_SIZE, STEP_GAP, ROW_GAP = 264, 32, 4, 4
+local BADGE_SIZE, BADGE_GAP = 52, 6
+local ROWS_WIDTH = PLATE_WIDTH - BADGE_SIZE - BADGE_GAP
+local TRACK_WIDTH = ROWS_WIDTH - 2 * (STEP_SIZE + STEP_GAP)
+local PIP_GAP, PIP_PAD, PIP_MAX_CELL = 2, 2, 28
+-- Past SEGMENT_FROM pips the glyphs get too small to read, so the row switches to tall flat segments.
+local SEGMENT_FROM, SEGMENT_HEIGHT = 9, 24
+local SEGMENT_COLORS = {
+    hp = {filled = "#F87171", empty = "#262833"},
+    stress = {filled = "#FBBF24", empty = "#262833"},
+}
+
+local function isSegmented(amount)
+    return (tonumber(amount) or 1) >= SEGMENT_FROM
+end
+
+-- Always one row at a fixed width: icon pips shrink up to SEGMENT_FROM, then tall segments take over.
+local function pipLayout(amount)
+    amount = math.max(1, tonumber(amount) or 1)
+    local segmented = isSegmented(amount)
+    local gap = segmented and 2 or PIP_GAP
+    local width = math.floor((TRACK_WIDTH - 2 * PIP_PAD - gap * (amount - 1)) / amount * 10) / 10
+    local cellW = segmented and width or math.min(PIP_MAX_CELL, width)
+    local cellH = segmented and SEGMENT_HEIGHT or cellW
+    return amount, cellW, cellH, gap, math.max(STEP_SIZE, cellH + 2 * PIP_PAD)
+end
+
+-- Every pip is a near-black silhouette of the glyph (fills hollow outlines, rims solid ones) under the icon.
+local function pipsXml(kind, current, amount)
+    local out = {}
+    local segmented = isSegmented(amount)
+    for i = 1, math.max(1, tonumber(amount) or 1) do
+        local state = i <= (tonumber(current) or 0) and "filled" or "empty"
+        if segmented then
+            out[#out + 1] = '<Panel color="#05060A" padding="2"><Image id="' .. kind .. '_' .. i .. '" color="' .. SEGMENT_COLORS[kind][state] .. '" /></Panel>'
+        else
+            out[#out + 1] = '<Panel><Image image="' .. icon(kind, "filled") .. '" color="#05060A" preserveAspect="true" />'
+                .. '<Panel padding="2"><Image id="' .. kind .. '_' .. i .. '" image="' .. icon(kind, state) .. '" preserveAspect="true" /></Panel></Panel>'
+        end
+    end
+    return table.concat(out)
+end
+
+local function stepButton(id, handler, label)
+    return '<Button id="' .. id .. '" onClick="' .. handler .. '" text="' .. label .. '" fontSize="22" fontStyle="Bold" padding="0 0 0 0"'
+        .. ' preferredWidth="' .. STEP_SIZE .. '" preferredHeight="' .. STEP_SIZE .. '" minWidth="' .. STEP_SIZE .. '"'
+        .. ' color="#2A2D3B" hoverColor="#3C4259" pressColor="#1B1D26" textColor="#F8FAFC" outline="#4B5066" outlineSize="2 2" />'
+end
+
+local function barRow(kind, current, amount, decId, decFn, incId, incFn)
+    local columns, cellW, cellH, gap, height = pipLayout(amount)
+    return '<HorizontalLayout preferredHeight="' .. height .. '" childForceExpandWidth="false" childForceExpandHeight="false" childAlignment="MiddleCenter" spacing="' .. STEP_GAP .. '">'
+        .. stepButton(decId, decFn, "-")
+        .. '<GridLayout id="small' .. kind .. '" cellSize="' .. cellW .. ' ' .. cellH .. '" spacing="' .. gap .. ' ' .. gap .. '"'
+        .. ' constraint="FixedColumnCount" constraintCount="' .. columns .. '" childAlignment="MiddleCenter"'
+        .. ' preferredWidth="' .. TRACK_WIDTH .. '" preferredHeight="' .. height .. '" minWidth="' .. TRACK_WIDTH .. '" padding="' .. PIP_PAD .. '">'
+        .. pipsXml(kind, current, amount)
+        .. '</GridLayout>'
+        .. stepButton(incId, incFn, "+")
+        .. '</HorizontalLayout>', height
+end
+
+-- Condition icons sit in a row on top of the plate; inactive ones collapse, the rest stay centered.
+local CONDITION_SIZE, CONDITION_GAP = 44, 4
+local CONDITION_ORDER = {"restrained", "vulnerable", "stressed", "bloodied", "hidden"}
+
+local function conditionsRowXml(plateHeight)
+    local out = {}
+    for _, id in ipairs(CONDITION_ORDER) do
+        local gmOnly = id == "hidden" and ' visibility="Black"' or ''
+        out[#out + 1] = '<Panel id="' .. id .. '" active="false" preferredWidth="' .. CONDITION_SIZE .. '" preferredHeight="' .. CONDITION_SIZE .. '"' .. gmOnly .. '>'
+            .. '<Image image="' .. conditionIcon(id) .. '" color="#05060A" preserveAspect="true" />'
+            .. '<Panel padding="3"><Image image="' .. conditionIcon(id) .. '" preserveAspect="true" /></Panel></Panel>'
+    end
+    return '<HorizontalLayout id="conditions" width="' .. PLATE_WIDTH .. '" height="' .. CONDITION_SIZE .. '" offsetXY="0 ' .. (plateHeight + CONDITION_SIZE / 2 + 6)
+        .. '" spacing="' .. CONDITION_GAP .. '" childForceExpandWidth="false" childForceExpandHeight="false" childAlignment="MiddleCenter">'
+        .. table.concat(out) .. '</HorizontalLayout>'
+end
+
+local function mainXml()
+        local hpRow, hpHeight = barRow("hp", data.hp, data.maxHp, "decHPSmall", "decreaseHP", "incHPSmall", "increaseHP")
+    local stressRow, stressHeight = barRow("stress", data.stress, data.maxStress, "decStressSmall", "decreaseStress", "incStressSmall", "increaseStress")
+    local rowsHeight = hpHeight + stressHeight + ROW_GAP
+    local plateHeight = math.max(BADGE_SIZE, rowsHeight)
+
+    return [[
+        <Defaults>
+            <Button visibility="Black"/>
+            <InputField visibility="Black"/>
+        </Defaults>
+        <Panel id="scale">
+            <Panel id="pivot" visibility="Black" active="]] .. tostring(data.showing) .. [[" offsetXY="0 0" scale="1 1 1" rotation="0 0 0">
+                <Panel visibility="Black" id="height">
+                    <Panel id="container" visibility="Black" offsetXY="0 0" scale="1 1 1" rotation="-45 0 0">
+                        <HorizontalLayout id="plate" width="]] .. PLATE_WIDTH .. [[" height="]] .. plateHeight .. [[" offsetXY="0 ]] .. (plateHeight / 2) .. [[" spacing="]] .. BADGE_GAP .. [[" childForceExpandWidth="false" childForceExpandHeight="false" childAlignment="MiddleCenter">
+                            <Panel preferredWidth="]] .. BADGE_SIZE .. [[" preferredHeight="]] .. BADGE_SIZE .. [[">
+                                <Image image="]] .. icon("armor", "filled") .. [[" color="#0A0B10" preserveAspect="true" />
+                                <Image image="]] .. icon("armor", "empty") .. [[" preserveAspect="true" />
+                                <Text id="smallDifficulty" color="#F8FAFC" fontSize="26" fontStyle="Bold" alignment="MiddleCenter" offsetXY="0 2">]] .. data.difficulty .. [[</Text>
+                            </Panel>
+                            <VerticalLayout preferredWidth="]] .. ROWS_WIDTH .. [[" preferredHeight="]] .. rowsHeight .. [[" spacing="]] .. ROW_GAP .. [[" childForceExpandHeight="false" childAlignment="MiddleCenter">
+                                ]] .. hpRow .. stressRow .. [[
+                            </VerticalLayout>
+                        </HorizontalLayout>
+                        ]] .. conditionsRowXml(plateHeight) .. [[
+                    </Panel>
+                </Panel>
+            </Panel>
+        </Panel>
+    ]]
+end
+
+function refreshPips(kind, current, amount)
+    local segmented = isSegmented(amount)
+    for i = 1, tonumber(amount) or 0 do
+        local state = i <= tonumber(current) and "filled" or "empty"
+        if segmented then
+            self.UI.setAttribute(kind .. "_" .. i, "color", SEGMENT_COLORS[kind][state])
+        else
+            self.UI.setAttribute(kind .. "_" .. i, "image", icon(kind, state))
+        end
+    end
+end
+
+-- Max HP / stress changed: the pip grid size changes, so the whole panel is rebuilt.
+function rebuildUI()
+    local active = {}
+    for _, id in ipairs({"restrained", "vulnerable", "stressed", "bloodied", "hidden"}) do
+        active[id] = self.UI.getAttribute(id, "active")
+    end
+    self.UI.setXml(mainXml() .. conditionsXml())
+    Wait.frames(function()
+        for id, value in pairs(active) do
+            if value == "true" then toggleCondition(id, "true") end
+        end
+        lastAng = -1
+        alignPivot()
+    end, 10)
+end
+
+
+-- The GM-only black name, appended after the bars panel.
+function conditionsXml()
+    local xml = ""
+    if data.black_name then
+        local p = 35
+        if IM_BOSS then
+            p = 15
+        end
+
+        xml = xml .. [[
+            <Text id="BlackName" scale="1 1 1" fontSize="34" visibility="Black" text="]]..data.black_name..[[" color="Black" position="0 ]].. p ..[[ -50" rotation="90 270 90" fontStyle="Bold" outline="White" outlineSize="1 -1" />
+        ]]
+    end
+
+    return xml
+end
+
 function setupDMUI()
     self.addContextMenuItem("Toggle UI", toggleUI, true)
     self.addContextMenuItem("Raise UI", raiseUI, true)
@@ -457,126 +621,9 @@ function setupDMUI()
     Wait.time(function() 
         ready = true     
         
-        local XMLString = [[
-            <Defaults>
-                <Button visibility="Black"/>
-                <InputField visibility="Black"/>
-                <Button tooltipOffset="-25" tooltipBackgroundColor="#000000ff" color="#ffffff00" textColor="#000000ff" textAlignment="MiddleCenter"/>
-                <Button class="clickable" color="#ffffffff" colors="#ffffff00|#ffff0040|#00000040|#ffffff00"/>
-            </Defaults>
-            <Panel id="scale">
-                <Panel id="pivot" visibility="Black" active="]]..tostring(data.showing)..[[" offsetXY="0 0" scale="1 1 1" rotation="0 0 0">
-                    <Panel visibility="Black" id="height">
-                        <Panel id="container" visibility="Black" offsetXY="0 0" scale="2 2 2" rotation="-45 0 0">
-                            <Image
-                                id="bars"
-                                image="bars"
-                                offsetXY="0 20"
-                                width="200"
-                                height="85"
-                                scale="0.525 0.525 0.525"
-                            >
-                                <Text
-                                    id="smallhp"
-                                    color="Black"
-                                    fontSize="150"
-                                    width="]]..100*data.maxHp..[["
-                                    height="200"
-                                    offsetXY="17 -2"
-                                    scale="]]..1.45/data.maxHp..[[ 0.25 0.25"
-                                >]]..barString("□", "■", data.hp, data.maxHp)..[[</Text>
+        local XMLString = mainXml()
 
-                                <Text
-                                    id="smallstress"
-                                    color="Black"
-                                    fontSize="150"
-                                    width="]]..100*data.maxStress..[["
-                                    height="200"
-                                    offsetXY="17 -29"
-                                    scale="]]..1.45/data.maxStress..[[ 0.17 0.25"
-                                >]]..barString("□", "■", data.stress, data.maxStress)..[[</Text>
-
-                                <Text
-                                    id="smallDifficulty"
-                                    color="Black"
-                                    fontSize="30"
-                                    width="60"
-                                    height="60"
-                                    offsetXY="0 23"
-                                    scale="0.8 0.8 0.8"
-                                    alignment="MiddleCenter"
-                                >]]..data.difficulty..[[</Text>
-
-                                <Button
-                                    id="incHPSmall"
-                                    onClick="increaseHP"
-                                    class="clickable"
-                                    offsetXY="90 -1"
-                                    width="40"
-                                    height="40"
-                                ></Button>
-                                <Button
-                                    id="decHPSmall"
-                                    onClick="decreaseHP"
-                                    class="clickable"
-                                    offsetXY="-90 -1"
-                                    width="40"
-                                    height="40"
-                                ></Button>
-
-                                <Button
-                                    id="incStressSmall"
-                                    onClick="increaseStress"
-                                    class="clickable"
-                                    offsetXY="90 -40"
-                                    width="40"
-                                    height="40"
-                                ></Button>
-                                <Button
-                                    id="decStressSmall"
-                                    onClick="decreaseStress"
-                                    class="clickable"
-                                    offsetXY="-90 -40"
-                                    width="40"
-                                    height="40"
-                                ></Button>
-                            </Image>
-                        </Panel>
-                    </Panel>
-                </Panel>
-            </Panel>
-        ]]
-
-        local panelPosY = 350
-        if (self.hasTag(OBJECT_TAGS.boss_token)) then
-            panelPosY = 480
-        end
-
-        require("src.data.condition_images")
-
-        local iconSize = 100
-
-        XMLString = XMLString .. [[
-            <GridLayout scale="1 1 1" cellSize="]]..iconSize..[[ ]]..iconSize..[[" childAlignment="MiddleCenter" id="conditions" constraint="FixedRowCount" constraintCount="1"  position="0 0 -]]..panelPosY..[[" rotation="90 0 0">
-                <Image id="restrained" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["restrained"].url..[["  active="false" />
-                <Image id="vulnerable" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["vulnerable"].url..[[" rotation="0 0 180"  active="false" />
-                <Image id="stressed" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["stressed"].url..[["  active="false" />
-                <Image id="bloodied" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["bloodied"].url..[["  rotation="0 0 180" active="false" />
-                <Image id="hidden" width="]]..iconSize..[[" height="]]..iconSize..[[" class="condition" image="]]..CONDITIONS["hidden"].url..[["  active="false" visibility="Black" />
-            </GridLayout>
-        ]]
-
-        if data.black_name then
-            local p = 35
-            if IM_BOSS then
-                p = 15
-            end
-
-            XMLString = XMLString .. [[
-                <Text id="BlackName" scale="1 1 1" fontSize="34" visibility="Black" text="]]..data.black_name..[[" color="Black" position="0 ]].. p ..[[ -50" rotation="90 270 90" fontStyle="Bold" outline="White" outlineSize="1 -1" />
-            ]]
-        end
-
+        XMLString = XMLString .. conditionsXml()
         self.UI.setXml(XMLString)
         self.setName(data.name)
     end, 0.5)
@@ -652,30 +699,6 @@ end
 function is_visible()
     return _visible
 end
-end)
-__bundle_register("src.data.condition_images", function(require, _LOADED, __bundle_register, __bundle_modules)
-CONDITIONS = {
-    ranger_focus = {
-        url = "https://steamusercontent-a.akamaihd.net/ugc/2426950071414376932/2BBC97B068AFDD9AB4F2DA6F94977EE41D70754C/"
-    },
-    vulnerable = {
-        url = "https://steamusercontent-a.akamaihd.net/ugc/2426949702261761386/F109A21CE2ABB207A0096EC817BB2BA9A7DBFFDC/",
-        rotation = "0 180 0"
-    },
-    hidden = {
-        url = "https://steamusercontent-a.akamaihd.net/ugc/2426949702261748427/640665717D8050B053DE8EB2944C30CF817FCA5C/",
-    },
-    restrained = {
-        url = "https://steamusercontent-a.akamaihd.net/ugc/2426949702261749880/B2B7FFA29ED39AAFCCD86AF675A5C9FDA54BFBE0/"
-    },
-    stressed = {
-        url = "https://steamusercontent-a.akamaihd.net/ugc/2426949702261779853/442EA1D02948B229193FD827855B47EB45EBA1ED/"
-    },
-    bloodied = {
-        url = "https://steamusercontent-a.akamaihd.net/ugc/2426950071414359910/C2D329195239E633ECFBC9D979D9BD7F17AFB665/",
-        rotation = "0 180 0"
-    }
-}
 end)
 __bundle_register("src.core.events", function(require, _LOADED, __bundle_register, __bundle_modules)
 --- @class MonsterData
