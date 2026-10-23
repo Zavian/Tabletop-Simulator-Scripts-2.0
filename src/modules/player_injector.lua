@@ -1,107 +1,122 @@
 --[[StartXML
 <Defaults>
-    <!-- Swiss Minimalist Defaults -->
     <Text color="#F8FAFC" fontStyle="Bold" alignment="MiddleCenter" />
-    <Button color="#1E293B" textColor="#F1F5F9" hoverColor="#334155" pressColor="#0F172A" fontStyle="Bold" outline="#475569" outlineSize="1 1" />
+    <Button color="#1E293B" textColor="#F1F5F9" hoverColor="#334155" pressColor="#0F172A" fontStyle="Bold" outline="#334155" outlineSize="1 1" />
     <Panel color="Transparent" />
-
-    <!-- Class Defaults -->
-    <Text class="swiss-label" fontSize="10" color="#94A3B8" alignment="MiddleLeft" />
-    <Button class="swiss-step" width="28" height="28" fontSize="16" color="#1E293B" hoverColor="#334155" textColor="#F8FAFC" outline="#334155" outlineSize="1 1" />
-    <Button class="swiss-gear" width="26" height="26" fontSize="12" color="#1E293B" hoverColor="#475569" textColor="#CBD5E1" outline="#334155" outlineSize="1 1" />
+    <Text class="lbl" fontSize="11" alignment="MiddleLeft" preferredHeight="22" />
+    <Text class="chip" fontSize="9" color="#8A8F9E" alignment="MiddleCenter" preferredHeight="14" />
+    <Text class="count" fontSize="22" alignment="MiddleRight" preferredHeight="28" />
+    <Button class="swiss-step" width="30" height="30" preferredWidth="30" preferredHeight="30" minWidth="30" fontSize="18" color="#2A2D3B" outline="#4B5066" outlineSize="1 1" hoverColor="#3C4259" pressColor="#0F172A" textColor="#F8FAFC" />
+    <Button class="max" text="SET MAX" fontSize="9" preferredWidth="52" preferredHeight="20" minWidth="52" color="#1F2230" outline="#3B4054" outlineSize="1 1" hoverColor="#3C4259" textColor="#CBD5E1" />
+    <GridLayout class="track" childAlignment="MiddleLeft" constraint="FixedRowCount" constraintCount="1" spacing="2 2" padding="3" preferredWidth="424" color="#060A12" outline="#1E293B" outlineSize="1 1" />
 </Defaults>
+<Panel position="0 330 -50" width="560" height="508" color="#0A0B10FA" outline="#3F4350" outlineSize="1 1" padding="16" rectAlignment="MiddleCenter" id="StatsPanel" active="true">
+    <VerticalLayout spacing="8" childForceExpandHeight="false">
 
-<!-- Main Container -->
-<Panel position="0 300 -50" width="560" height="400" color="#0A0E17FA" outline="#334155" outlineSize="1 1" padding="12" rectAlignment="MiddleCenter" id="StatsPanel">
-    <VerticalLayout spacing="4">
-        
-        <!-- 1. DEFENSE STATS -->
-        <GridLayout cellSize="263 120" spacing="10 0" height="120">
-            
-            <!-- Evasion -->
-            <VerticalLayout color="#0F172A" outline="#334155" outlineSize="1 1" padding="6" spacing="2">
-                <HorizontalLayout height="18">
-                    <Text text="EVASION" class="swiss-label" color="#CBD5E1" />
-                    <Button id="edit_evasion" text="EDIT" width="40" height="18" fontSize="8" color="#1E293B" textColor="#F8FAFC" outline="#475569" outlineSize="1 1" />
-                </HorizontalLayout>
-                <Text id="evasion" text="10" color="#FFFFFF" fontSize="32" fontStyle="Bold" height="44" />
-            </VerticalLayout>
+        <HorizontalLayout preferredHeight="14" childForceExpandWidth="false" spacing="10" childAlignment="MiddleLeft">
+            <Text text="VITALS" fontSize="11" color="#C9B27C" alignment="MiddleLeft" preferredWidth="52" minWidth="52" />
+            <VerticalLayout flexibleWidth="1" childForceExpandHeight="false" childAlignment="MiddleCenter"><Image color="#5A4F34" preferredHeight="1" /></VerticalLayout>
+        </HorizontalLayout>
 
-            <!-- Armor -->
-            <VerticalLayout color="#0F172A" outline="#334155" outlineSize="1 1" padding="6" spacing="2">
-                <HorizontalLayout height="18">
-                    <Text text="ARMOR SCORE" class="swiss-label" color="#CBD5E1" />
-                    <Button id="set_max_armor" text="SET MAX" width="54" height="18" fontSize="8" color="#1E293B" textColor="#F8FAFC" outline="#475569" outlineSize="1 1" />
-                </HorizontalLayout>
-
-                <HorizontalLayout height="32" spacing="6" childAlignment="MiddleCenter">
-                    <Button id="lose_armor" text="-" class="swiss-step" />
-                    <Text id="armor_display" text="2 / 6" color="#FFFFFF" fontSize="22" fontStyle="Bold" width="90" />
-                    <Button id="gain_armor" text="+" class="swiss-step" />
-                </HorizontalLayout>
-
-                <GridLayout id="armor_slots" cellSize="18 18" spacing="3 3" constraint="FixedColumnCount" constraintCount="9" childAlignment="MiddleCenter" height="44" color="#030712" outline="#1E293B" outlineSize="1 1" />
-            </VerticalLayout>
-
-        </GridLayout>
-
-        <!-- 2. DAMAGE THRESHOLDS -->
-        <GridLayout cellSize="172 70" spacing="10 0" height="70">
-            
-            <!-- Minor -->
-            <VerticalLayout color="#0F172A" outline="#334155" outlineSize="1 1" padding="4" spacing="1">
-                <Text text="MINOR DAMAGE" fontSize="9" color="#94A3B8" height="14" />
-                <Text id="minor_damage_display" text="1 - 6" fontSize="16" color="#FFFFFF" fontStyle="Bold" height="20" />
-                <Text text="MARK 1 HP" fontSize="8" color="#64748B" height="12" />
-            </VerticalLayout>
-
-            <!-- Major -->
-            <VerticalLayout color="#484127" outline="#FDE68A" outlineSize="1 1" padding="4" spacing="1">
-                <Text text="MAJOR DAMAGE" fontSize="9" color="#FCD34D" height="14" />
-                <Text id="first_threshold" text="7+" color="#FDE68A" fontSize="20" fontStyle="Bold" height="22" />
-                <Text text="MARK 2 HP" fontSize="8" color="#F59E0B" height="12" />
-            </VerticalLayout>
-
-            <!-- Severe -->
-            <VerticalLayout color="#442D2D" outline="#FCA5A5" outlineSize="1 1" padding="4" spacing="1">
-                <Text text="SEVERE DAMAGE" fontSize="9" color="#FCA5A5" height="14" />
-                <Text id="second_threshold" text="14+" color="#FECACA" fontSize="20" fontStyle="Bold" height="22" />
-                <Text text="MARK 3 HP" fontSize="8" color="#EF4444" height="12" />
-            </VerticalLayout>
-
-        </GridLayout>
-
-        <!-- 3. RESOURCE WELLS -->
-        <VerticalLayout spacing="6">
-            
-            <!-- HP -->
-            <HorizontalLayout height="44" color="#0F172A" outline="#334155" outlineSize="1 1" padding="4" spacing="6" childAlignment="MiddleLeft">
-                <Button id="set_max_hp" text="⚙" class="swiss-gear" />
-                <Text text="HIT POINTS" width="65" alignment="MiddleLeft" wrapText="false" fontSize="11" color="#F87171" fontStyle="Bold" />
-                <Button id="suffer_hp" text="-" class="swiss-step" />
-                <GridLayout id="hp" cellSize="22 22" spacing="2 2" constraint="FixedRowCount" constraintCount="1" childAlignment="MiddleCenter" height="28" color="#030712" outline="#1E293B" outlineSize="1 1" />
-                <Button id="recover_hp" text="+" class="swiss-step" />
+        <HorizontalLayout preferredHeight="88" spacing="8" childForceExpandWidth="false">
+            <HorizontalLayout preferredWidth="132" minWidth="132" color="#15171F" outline="#2A2E3C" outlineSize="1 1" spacing="0" childForceExpandWidth="false">
+                <Image color="#C9B27C" preferredWidth="4" minWidth="4" />
+                <VerticalLayout flexibleWidth="1" padding="12 12 8 8" spacing="0" childForceExpandHeight="false">
+                    <HorizontalLayout preferredHeight="22" childForceExpandWidth="false" childAlignment="MiddleLeft">
+                        <Text text="EVASION" class="lbl" color="#C9B27C" flexibleWidth="1" />
+                        <Button id="edit_evasion" text="EDIT" class="max" preferredWidth="36" minWidth="36" onClick="68a05c/UI_SetVariable(evasion)" />
+                    </HorizontalLayout>
+                    <Text id="evasion" text="14" color="#FFFFFF" fontSize="44" preferredHeight="50" onClick="68a05c/UI_SetVariable(evasion)" />
+                </VerticalLayout>
             </HorizontalLayout>
 
-            <!-- Stress -->
-            <HorizontalLayout height="44" color="#0F172A" outline="#334155" outlineSize="1 1" padding="4" spacing="6" childAlignment="MiddleLeft">
-                <Button id="set_max_stress" text="⚙" class="swiss-gear" />
-                <Text text="STRESS" width="65" alignment="MiddleLeft" wrapText="false" fontSize="11" color="#FBBF24" fontStyle="Bold" />
-                <Button id="suffer_stress" text="-" class="swiss-step" />
-                <GridLayout id="stress" cellSize="22 22" spacing="2 2" constraint="FixedRowCount" constraintCount="1" childAlignment="MiddleCenter" height="28" color="#030712" outline="#1E293B" outlineSize="1 1" />
-                <Button id="recover_stress" text="+" class="swiss-step" />
+            <HorizontalLayout preferredWidth="388" minWidth="388" color="#15171F" outline="#2A2E3C" outlineSize="1 1" spacing="0" childForceExpandWidth="false">
+                <Image color="#8796F6" preferredWidth="4" minWidth="4" />
+                <VerticalLayout flexibleWidth="1" padding="12 12 8 8" spacing="0" childForceExpandHeight="false">
+                    <HorizontalLayout preferredHeight="22" childForceExpandWidth="false" childAlignment="MiddleLeft" spacing="8">
+                        <Text text="ARMOR" class="lbl" color="#8796F6" preferredWidth="60" minWidth="60" />
+                        <Button id="set_max_armor" class="max" onClick="68a05c/UI_SetVariable(max_armor)" />
+                    </HorizontalLayout>
+                    <HorizontalLayout preferredHeight="48" childForceExpandWidth="false" childAlignment="MiddleLeft" spacing="8">
+                        <Button id="lose_armor" text="-" class="swiss-step" onClick="68a05c/UI_LoseVariable(armor)" />
+                        <Text id="armor_display" text="5" color="#FFFFFF" fontSize="28" preferredWidth="44" minWidth="44" />
+                        <Button id="gain_armor" text="+" class="swiss-step" onClick="68a05c/UI_GainVariable(armor)" />
+                        <GridLayout id="armor_slots" cellSize="20 20" spacing="3 3" constraint="FixedColumnCount" constraintCount="9" childAlignment="MiddleLeft" preferredWidth="212" preferredHeight="46" minWidth="212" color="#0A1024" outline="#2D3A66" outlineSize="1 1" padding="3" />
+                    </HorizontalLayout>
+                </VerticalLayout>
             </HorizontalLayout>
+        </HorizontalLayout>
 
-            <!-- Hope -->
-            <HorizontalLayout height="44" color="#0F172A" outline="#334155" outlineSize="1 1" padding="4" spacing="6" childAlignment="MiddleLeft">
-                <Button id="set_max_hope" text="⚙" class="swiss-gear" />
-                <Text text="HOPE" width="65" alignment="MiddleLeft" wrapText="false" fontSize="11" color="#60A5FA" fontStyle="Bold" />
-                <Button id="lose_hope" text="-" class="swiss-step" />
-                <GridLayout id="hope" cellSize="22 22" spacing="2 2" constraint="FixedRowCount" constraintCount="1" childAlignment="MiddleCenter" height="28" color="#030712" outline="#1E293B" outlineSize="1 1" />
-                <Button id="gain_hope" text="+" class="swiss-step" />
-            </HorizontalLayout>
+        <HorizontalLayout preferredHeight="164" color="#15171F" outline="#2A2E3C" outlineSize="1 1" spacing="0" childForceExpandWidth="false">
+            <Image color="#F87171" preferredWidth="4" minWidth="4" />
+            <VerticalLayout flexibleWidth="1" padding="12 12 8 8" spacing="8" childForceExpandHeight="false">
+                <HorizontalLayout preferredHeight="52" spacing="2">
+                    <VerticalLayout color="#1B1D26" outline="#3B4054" outlineSize="1 1" spacing="0" childAlignment="MiddleCenter" childForceExpandHeight="false">
+                        <Text text="MINOR  ·  1 HP" class="chip" />
+                        <Text id="minor_damage_display" text="1 - 14" fontSize="24" color="#E2E8F0" preferredHeight="30" />
+                    </VerticalLayout>
+                    <VerticalLayout color="#1B1D26" outline="#6B5420" outlineSize="1 1" spacing="0" onClick="68a05c/UI_SetVariable(first_threshold)" childAlignment="MiddleCenter" childForceExpandHeight="false">
+                        <Text text="MAJOR  ·  2 HP" class="chip" color="#FCD34D" />
+                        <HorizontalLayout preferredHeight="30" childForceExpandWidth="false" childAlignment="MiddleCenter" spacing="4">
+                            <Text text="≥" fontSize="14" color="#B45309" preferredWidth="14" />
+                            <Text id="first_threshold" text="15" fontSize="24" color="#FDE68A" preferredWidth="40" onClick="68a05c/UI_SetVariable(first_threshold)" />
+                        </HorizontalLayout>
+                    </VerticalLayout>
+                    <VerticalLayout color="#1B1D26" outline="#6B2A2A" outlineSize="1 1" spacing="0" onClick="68a05c/UI_SetVariable(second_threshold)" childAlignment="MiddleCenter" childForceExpandHeight="false">
+                        <Text text="SEVERE  ·  3 HP" class="chip" color="#FCA5A5" />
+                        <HorizontalLayout preferredHeight="30" childForceExpandWidth="false" childAlignment="MiddleCenter" spacing="4">
+                            <Text text="≥" fontSize="14" color="#B91C1C" preferredWidth="14" />
+                            <Text id="second_threshold" text="22" fontSize="24" color="#FECACA" preferredWidth="40" onClick="68a05c/UI_SetVariable(second_threshold)" />
+                        </HorizontalLayout>
+                    </VerticalLayout>
+                </HorizontalLayout>
+                <HorizontalLayout preferredHeight="36" childForceExpandWidth="false" childAlignment="MiddleLeft" spacing="8">
+                    <Text text="HIT POINTS" class="lbl" color="#F87171" preferredWidth="96" minWidth="96" />
+                    <Button id="set_max_hp" class="max" onClick="68a05c/UI_SetVariable(max_hp)" />
+                    <Text text=" " flexibleWidth="1" preferredWidth="1" minWidth="1" />
+                    <Text id="hp_count" text="0 / 0" class="count" preferredWidth="150" minWidth="150" fontSize="28" preferredHeight="34" />
+                </HorizontalLayout>
+                <HorizontalLayout preferredHeight="44" childForceExpandWidth="false" childAlignment="MiddleCenter" spacing="8">
+                    <Button id="suffer_hp" text="-" class="swiss-step" onClick="68a05c/UI_LoseVariable(hp)" />
+                    <GridLayout id="hp" class="track" color="#170C11" outline="#4A2230" cellSize="30 36" preferredHeight="44" />
+                    <Button id="recover_hp" text="+" class="swiss-step" onClick="68a05c/UI_GainVariable(hp)" />
+                </HorizontalLayout>
+            </VerticalLayout>
+        </HorizontalLayout>
 
-        </VerticalLayout>
+        <HorizontalLayout preferredHeight="88" color="#15171F" outline="#2A2E3C" outlineSize="1 1" spacing="0" childForceExpandWidth="false">
+            <Image color="#FBBF24" preferredWidth="4" minWidth="4" />
+            <VerticalLayout flexibleWidth="1" padding="12 12 8 8" spacing="4" childForceExpandHeight="false">
+                <HorizontalLayout preferredHeight="30" childForceExpandWidth="false" childAlignment="MiddleLeft" spacing="8">
+                    <Text text="STRESS" class="lbl" color="#FBBF24" preferredWidth="96" minWidth="96" />
+                    <Button id="set_max_stress" class="max" onClick="68a05c/UI_SetVariable(max_stress)" />
+                    <Text text=" " flexibleWidth="1" preferredWidth="1" minWidth="1" />
+                    <Text id="stress_count" text="0 / 0" class="count" preferredWidth="150" minWidth="150" />
+                </HorizontalLayout>
+                <HorizontalLayout preferredHeight="36" childForceExpandWidth="false" childAlignment="MiddleCenter" spacing="8">
+                    <Button id="suffer_stress" text="-" class="swiss-step" onClick="68a05c/UI_LoseVariable(stress)" />
+                    <GridLayout id="stress" class="track" color="#181209" outline="#4A3A14" cellSize="30 30" preferredHeight="36" />
+                    <Button id="recover_stress" text="+" class="swiss-step" onClick="68a05c/UI_GainVariable(stress)" />
+                </HorizontalLayout>
+            </VerticalLayout>
+        </HorizontalLayout>
+
+        <HorizontalLayout preferredHeight="88" color="#15171F" outline="#2A2E3C" outlineSize="1 1" spacing="0" childForceExpandWidth="false">
+            <Image color="#60A5FA" preferredWidth="4" minWidth="4" />
+            <VerticalLayout flexibleWidth="1" padding="12 12 8 8" spacing="4" childForceExpandHeight="false">
+                <HorizontalLayout preferredHeight="30" childForceExpandWidth="false" childAlignment="MiddleLeft" spacing="8">
+                    <Text text="HOPE" class="lbl" color="#60A5FA" preferredWidth="96" minWidth="96" />
+                    <Button id="set_max_hope" class="max" onClick="68a05c/UI_SetVariable(max_hope)" />
+                    <Text text=" " flexibleWidth="1" preferredWidth="1" minWidth="1" />
+                    <Text id="hope_count" text="0 / 0" class="count" preferredWidth="150" minWidth="150" />
+                </HorizontalLayout>
+                <HorizontalLayout preferredHeight="36" childForceExpandWidth="false" childAlignment="MiddleCenter" spacing="8">
+                    <Button id="lose_hope" text="-" class="swiss-step" onClick="68a05c/UI_LoseVariable(hope)" />
+                    <GridLayout id="hope" class="track" color="#09122A" outline="#1F3A6E" cellSize="30 30" preferredHeight="36" />
+                    <Button id="gain_hope" text="+" class="swiss-step" onClick="68a05c/UI_GainVariable(hope)" />
+                </HorizontalLayout>
+            </VerticalLayout>
+        </HorizontalLayout>
 
     </VerticalLayout>
 </Panel>
@@ -111,28 +126,16 @@ require("src.data.config")
 local utils = require("src.core.utils")
 local promise = require("src.core.promise")
 
+local ICON_BASE = "https://upload.zaes.dev/i/tts-player-icons/"
+local function icons(name)
+    return { filled = ICON_BASE .. name .. "-filled.png", empty = ICON_BASE .. name .. "-empty.png" }
+end
+
 local imageAssets = {
-    armor = {
-        useColor = false,
-        empty = "https://steamusercontent-a.akamaihd.net/ugc/14703946279316053304/9CBA4489042257736865EECEB3169AA4DF44C969/",
-        filled = "https://steamusercontent-a.akamaihd.net/ugc/14796930385077024339/7E84D6CDFFBAE9FD7391FDCFF72A04F07575A81A/",
-        color = {
-            empty = "#000000",
-            filled = "#8796F6"
-        }
-    },
-    hope = {
-        empty = "https://steamusercontent-a.akamaihd.net/ugc/12711628340321279551/7FB25DE24927C7013C51155B4920788787794290/",
-        filled = "https://steamusercontent-a.akamaihd.net/ugc/9553207623171576974/8C777BB56569223B78913805E39BC41FB84E6EFC/"
-    },
-    hp = {
-        filled = "https://steamusercontent-a.akamaihd.net/ugc/17692463545472723776/FDCF6A7BD047FF0FE95D7B18C1D742804F096322/",
-        empty = "https://steamusercontent-a.akamaihd.net/ugc/17933638928571452076/35B105A67D9B48031480BC45601CBB3775101C52/"
-    },
-    stress = {
-        filled = "https://steamusercontent-a.akamaihd.net/ugc/17766890096207944889/BE4260799C63669EC0D532AF8AFB372B5C3671B8/",
-        empty = "https://steamusercontent-a.akamaihd.net/ugc/17169108119283629613/E491D3B5B4EF77B2F44E1CFABF3CA2B17009431C/"
-    }
+    armor = icons("armor"),
+    hope = icons("sun"),
+    hp = icons("hp"),
+    stress = icons("stress")
 }
 
 local _defaults = {
@@ -142,6 +145,34 @@ local _defaults = {
     max_armor = 18,
     max_evasion = 25
 }
+
+-- Resource bars keep a fixed frame; the cells share it, so the bar never changes width.
+local BAR_WIDTH, BAR_PADDING, BAR_SPACING, BAR_MAX_CELL = 424, 3, 2, 36
+local BAR_CELL_HEIGHT = { hp = 36 }
+local BAR_CELL_HEIGHT_DEFAULT = 30
+
+local function fitBar(grid, amount)
+    local cell = math.min(BAR_MAX_CELL, math.floor((BAR_WIDTH - 2 * BAR_PADDING - BAR_SPACING * (amount - 1)) / amount))
+    grid.attributes.cellSize = cell .. " " .. (BAR_CELL_HEIGHT[grid.attributes.id] or BAR_CELL_HEIGHT_DEFAULT)
+end
+
+local function setCount(id, current, max)
+    self.UI.setAttribute(id, "text", (current or 0) .. "<size=15><color=#94A3B8> / " .. (max or 0) .. "</color></size>")
+end
+
+local function refreshCounts()
+    local d = utils.getData(self) or {}
+    setCount("hp_count", d.hp or d.max_hp, d.max_hp)
+    setCount("stress_count", d.stress or d.max_stress, d.max_stress)
+    setCount("hope_count", d.hope, d.max_hope)
+end
+
+-- Every saved change (hp, stress, hope, maxes) refreshes the count labels.
+local appendData = utils.appendData
+utils.appendData = function(obj, values)
+    appendData(obj, values)
+    if obj == self then refreshCounts() end
+end
 
 local linked = nil
 local showing_ui = false
@@ -204,24 +235,25 @@ function loadSavedData()
 
     -- Re-render resource grids if max values exist
     if data.max_hp then
-        Injector_setMaxHP(data.max_hp, nil, data.hp or data.max_hp)
+        Wait.frames(function() Injector_setMaxHP(data.max_hp, nil, data.hp or data.max_hp) end, 10)
     end
     if data.max_stress then
-        Injector_setMaxStress(data.max_stress, nil, data.stress or data.max_stress)
+        Wait.frames(function() Injector_setMaxStress(data.max_stress, nil, data.stress or data.max_stress) end, 20)
     end
     if data.max_armor then
-        Injector_setMaxArmor(data.max_armor, nil, data.armor or data.max_armor)
+        Wait.frames(function() Injector_setMaxArmor(data.max_armor, nil, data.armor or data.max_armor) end, 30)
     end
     if data.max_hope then
-        Injector_setMaxHope(data.max_hope, nil, data.hope or 0)
+        Wait.frames(function() Injector_setMaxHope(data.max_hope, nil, data.hope or 0) end, 40)
     else
-        setHope(data.hope or 0)
+        Wait.frames(function() setHope(data.hope or 0) end, 50)
     end
 
     -- Restore text displays
-    setThresholds(data.first_threshold or 0, data.second_threshold or 0)
-    setEvasion(data.evasion or 0)
-    setArmorDisplay(data.armor or data.max_armor or 0)
+    Wait.frames(function() setThresholds(data.first_threshold or 0, data.second_threshold or 0) end, 60)
+    Wait.frames(function() setEvasion(data.evasion or 0) end, 70)
+    Wait.frames(function() setArmorDisplay(data.armor or data.max_armor or 0) end, 80)
+    Wait.frames(refreshCounts, 90)
 end
 
 function ClickLink(_, player_color)
@@ -256,11 +288,11 @@ function InjectMini(obj_guid)
     ui_table = {}
 }
 
-local images = {
-    hp = "https://steamusercontent-a.akamaihd.net/ugc/17692463545472723776/FDCF6A7BD047FF0FE95D7B18C1D742804F096322/",
-    stress = "https://steamusercontent-a.akamaihd.net/ugc/17766890096207944889/BE4260799C63669EC0D532AF8AFB372B5C3671B8/",
-    armor = "https://steamusercontent-a.akamaihd.net/ugc/14796930385077024339/7E84D6CDFFBAE9FD7391FDCFF72A04F07575A81A/"
-}
+local ICON_BASE = "__ICON_BASE__"
+local function icons(name)
+    return { filled = ICON_BASE .. name .. "-filled.png", empty = ICON_BASE .. name .. "-empty.png" }
+end
+local images = { hp = icons("hp"), stress = icons("stress"), armor = icons("armor") }
 
 
 function set_data(params)
@@ -305,7 +337,7 @@ function setupUI()
                 childAlignment = "MiddleCenter",
                 constraint = "FixedRowCount",
                 constraintCount = "1",
-                position = "0 0 -250",
+                position = "0 0 -270",
                 rotation = "270 0 0",
                 id = "stress_container"
             },
@@ -353,161 +385,130 @@ function interpolate(value, inputStart, inputEnd, outputStart, outputEnd)
     return outputStart + (outputEnd - outputStart) * t
 end
 
-function setMaxHP(amount, current_amount, t)
-    -- Define the range for the amount that will affect the icon size.
-    -- For example, let's say the size starts decreasing after 1 icon and stops at 10 icons.
-    local min_amount = 6
-    local max_amount = 12
+local BAR_WIDTH, BAR_HEIGHT, BAR_GAP, BAR_MAX_CELL = 360, 30, 3, 26
+local ARMOR_CELL, ARMOR_COLUMNS = 26, 9
+local BAR_EDGE = { hp = "#6B3340", stress = "#6B5420", armor = "#3B4577" }
 
-    -- Define the corresponding icon size range.
-    local max_icon_size = 50
-    local min_icon_size = 25
+-- Bars are transparent; every pip carries its own dark tile so it reads against any table.
+local function styleBar(attrs, width, height, cell, align)
+    attrs.width = width
+    attrs.height = height
+    attrs.cellSize = cell .. " " .. cell
+    attrs.spacing = BAR_GAP .. " " .. BAR_GAP
+    attrs.childAlignment = align
+end
 
-    -- Linearly interpolate to find the icon size.
-    local icon_size = interpolate(amount, min_amount, max_amount, max_icon_size, min_icon_size)
-    icon_size = math.floor(icon_size) -- It's good practice to use whole numbers for UI element sizes.
-
-    t[1].attributes.cellSize = icon_size .. " " .. icon_size
-
-    t[1].children = {}
-
-    for i = 1, amount do
-        local icon = {
-            tag = "Image",
-            attributes = {
-                width = icon_size,
-                height = icon_size,
-                image = images.hp,
-                id = "hp_" .. i,
-                color = i > current_amount and "#000000" or "#ffffff"
+-- The HP/stress bars are seen mirrored, so they build last-to-first: pip 1 ends up on the viewer's left. Armor is rotated 180° instead and keeps its natural order.
+-- Each pip = near-black silhouette of the glyph (fills the hollow outline and rims the solid one) under the icon.
+local function addPips(container, kind, amount, current, mirrored)
+    container.children = {}
+    local first, last, step = 1, amount, 1
+    if mirrored then first, last, step = amount, 1, -1 end
+    for i = first, last, step do
+        table.insert(container.children, {
+            tag = "Panel",
+            attributes = {},
+            children = {
+                { tag = "Image", attributes = { image = images[kind].filled, color = "#05060A", preserveAspect = "true" } },
+                {
+                    tag = "Panel",
+                    attributes = { padding = "2" },
+                    children = {{
+                        tag = "Image",
+                        attributes = {
+                            id = kind .. "_" .. i,
+                            image = i > current and images[kind].empty or images[kind].filled,
+                            color = "#ffffff",
+                            preserveAspect = "true"
+                        }
+                    }}
+                }
             }
-        }
-        table.insert(t[1].children, icon)
+        })
     end
+end
+
+local function rowCell(amount)
+    return math.min(BAR_MAX_CELL, math.floor((BAR_WIDTH - BAR_GAP * (amount - 1)) / amount))
+end
+
+function setMaxHP(amount, current_amount, t)
+    local cell = rowCell(amount)
+    styleBar(t[1].attributes, BAR_WIDTH, BAR_HEIGHT, cell, "MiddleCenter")
+    addPips(t[1], "hp", amount, current_amount, true)
     return t
 end
 
 function setMaxStress(amount, current_amount, t)
-    -- Define the range for the amount that will affect the icon size.
-    -- For example, let's say the size starts decreasing after 1 icon and stops at 10 icons.
-    local min_amount = 6
-    local max_amount = 12
-
-    -- Define the corresponding icon size range.
-    local max_icon_size = 50
-    local min_icon_size = 25
-
-    -- Linearly interpolate to find the icon size.
-    local icon_size = interpolate(amount, min_amount, max_amount, max_icon_size, min_icon_size)
-    icon_size = math.floor(icon_size) -- It's good practice to use whole numbers for UI element sizes.
-    
-    t[2].attributes.cellSize = icon_size .. " " .. icon_size
-
-    t[2].children = {}
-
-    for i = 1, amount do
-        local icon = {
-            tag = "Image",
-            attributes = {
-                width = icon_size,
-                height = icon_size,
-                image = images.stress,
-                id = "stress_" .. i,
-                color = i > current_amount and "#000000" or "#ffffff"
-            }
-        }
-        table.insert(t[2].children, icon)
-    end
+    local cell = rowCell(amount)
+    styleBar(t[2].attributes, BAR_WIDTH, BAR_HEIGHT, cell, "MiddleCenter")
+    addPips(t[2], "stress", amount, current_amount, true)
     return t
 end
 
 function setMaxArmor(amount, current_amount, t)
-    t[3].children = {}
-
-    for i = 1, amount do
-        local icon = {
-            tag = "Image",
-            attributes = {
-                width = 35,
-                height = 35,
-                image = images.armor,
-                id = "armor_" .. i, 
-                color = i > current_amount and "#000000" or "#ffffff"
-            }
-        }
-        table.insert(t[3].children, icon)
-    end
+    -- balanced rows (12 -> 6 + 6, not 9 + 3) so the block stays visually centered
+    local rows = math.ceil(amount / ARMOR_COLUMNS)
+    local columns = math.ceil(amount / rows)
+    local width = columns * ARMOR_CELL + (columns - 1) * BAR_GAP
+    local height = rows * ARMOR_CELL + (rows - 1) * BAR_GAP
+    styleBar(t[3].attributes, width, height, ARMOR_CELL, "MiddleCenter")
+    t[3].attributes.constraint = "FixedColumnCount"
+    t[3].attributes.constraintCount = tostring(columns)
+    addPips(t[3], "armor", amount, current_amount)
     return t
 end
 
-function sufferHP()
-    local target = self.UI.getXmlTable()[1]
-    for i = #target.children, 1, -1 do
-        local color = self.UI.getAttribute("hp_"..i, "color")
-        if not color or color == "#ffffff" then
-            self.UI.setAttribute("hp_"..i, "color", "#000000")
-            data.hp = data.hp - 1
-            return
-        end
+local function isFilled(prefix, i, imgs)
+    return self.UI.getAttribute(prefix .. i, "image") ~= imgs.empty
+end
+
+local function setPip(prefix, i, imgs, filled)
+    self.UI.setAttribute(prefix .. i, "image", filled and imgs.filled or imgs.empty)
+end
+
+local function lastFilled(index, prefix, imgs)
+    local children = self.UI.getXmlTable()[index].children
+    for i = #children, 1, -1 do
+        if isFilled(prefix, i, imgs) then return i end
     end
+end
+
+local function firstEmpty(index, prefix, imgs)
+    local children = self.UI.getXmlTable()[index].children
+    for i = 1, #children do
+        if not isFilled(prefix, i, imgs) then return i end
+    end
+end
+
+function sufferHP()
+    local i = lastFilled(1, "hp_", images.hp)
+    if i then setPip("hp_", i, images.hp, false) data.hp = data.hp - 1 end
 end
 
 function healHP()
-    local target = self.UI.getXmlTable()[1]
-    for i = 1, #target.children do
-        local color = self.UI.getAttribute("hp_"..i, "color")
-        if color and color == "#000000" then
-            self.UI.setAttribute("hp_"..i, "color", "#ffffff")
-            data.hp = data.hp + 1
-            return
-        end
-    end
+    local i = firstEmpty(1, "hp_", images.hp)
+    if i then setPip("hp_", i, images.hp, true) data.hp = data.hp + 1 end
 end
 
 function sufferStress()
-    local target = self.UI.getXmlTable()[2]
-    for i = #target.children, 1, -1 do
-        local color = self.UI.getAttribute("stress_"..i, "color")
-        if not color or color == "#ffffff" then
-            self.UI.setAttribute("stress_"..i, "color", "#000000")
-            data.stress = data.stress - 1
-            return
-        end
-    end
+    local i = lastFilled(2, "stress_", images.stress)
+    if i then setPip("stress_", i, images.stress, false) data.stress = data.stress - 1 end
 end
 
 function healStress()
-    local target = self.UI.getXmlTable()[2]
-    for i = 1, #target.children do
-        local color = self.UI.getAttribute("stress_"..i, "color")
-        if color and color == "#000000" then
-            self.UI.setAttribute("stress_"..i, "color", "#ffffff")
-            data.stress = data.stress + 1
-            return
-        end
-    end
+    local i = firstEmpty(2, "stress_", images.stress)
+    if i then setPip("stress_", i, images.stress, true) data.stress = data.stress + 1 end
 end
 
 function loseArmor()
-    local target = self.UI.getXmlTable()[3]
-    for i = #target.children, 1, -1 do
-        local color = self.UI.getAttribute("armor_"..i, "color")
-        if not color or color == "#ffffff" then
-            self.UI.setAttribute("armor_"..i, "color", "#000000")
-            return
-        end
-    end
+    local i = lastFilled(3, "armor_", images.armor)
+    if i then setPip("armor_", i, images.armor, false) end
 end
 
 function gainArmor()
-    local target = self.UI.getXmlTable()[3]
-    for i = 1, #target.children do
-        local color = self.UI.getAttribute("armor_"..i, "color")
-        if color and color == "#000000" then
-            self.UI.setAttribute("armor_"..i, "color", "#ffffff")
-            return
-        end
-    end
+    local i = firstEmpty(3, "armor_", images.armor)
+    if i then setPip("armor_", i, images.armor, true) end
 end
 
 function getHP()
@@ -524,6 +525,7 @@ end
     local obj = getObjectFromGUID(obj_guid)
     
     if not obj then return end
+    script = script:gsub("__ICON_BASE__", ICON_BASE)
     obj.setLuaScript(script)
     linked = obj.reload()
 
@@ -678,11 +680,12 @@ function Injector_setMaxHP(amount, player_color, current_amount)
     local xml_table = self.UI.getXmlTable()
     local grid = utils.UI_findElementById(xml_table, "hp")  
     grid.children = {}
+    fitBar(grid, amount)
 
     local asset = imageAssets.hp
     for i = 1, amount do
         local isFilled = (i <= current_amount)
-        local attributes = { class = "hp", id = "hp_" .. i }
+        local attributes = { class = "hp", id = "hp_" .. i, preserveAspect = "true" }
 
         if asset and asset.useColor then
             attributes.color = isFilled and (asset.color and asset.color.filled or "#ffffff") or (asset.color and asset.color.empty or "#000000")
@@ -712,12 +715,13 @@ function Injector_setMaxStress(amount, player_color, current_amount)
 
     local xml_table = self.UI.getXmlTable()
     local grid = utils.UI_findElementById(xml_table, "stress")
-    grid.children = {}    
+    grid.children = {}
+    fitBar(grid, amount)    
 
     local asset = imageAssets.stress
     for i = 1, amount do
         local isFilled = (i <= current_amount)
-        local attributes = { class = "stress", id = "stress_" .. i }
+        local attributes = { class = "stress", id = "stress_" .. i, preserveAspect = "true" }
 
         if asset and asset.useColor then
             attributes.color = isFilled and (asset.color and asset.color.filled or "#ffffff") or (asset.color and asset.color.empty or "#000000")
@@ -793,11 +797,12 @@ function Injector_setMaxHope(amount, player_color, current_amount)
     local grid = utils.UI_findElementById(xml_table, "hope")
     if grid then
         grid.children = {}
+    fitBar(grid, amount)
 
         local asset = imageAssets.hope
         for i = 1, amount do
             local isFilled = (i <= current_amount)
-            local attributes = { class = "hope", id = "hope_" .. i }
+            local attributes = { class = "hope", id = "hope_" .. i, preserveAspect = "true" }
 
             if asset and asset.useColor then
                 attributes.color = isFilled and (asset.color and asset.color.filled or "#ffffff") or (asset.color and asset.color.empty or "#000000")

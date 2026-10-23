@@ -18,3 +18,8 @@ icons require attribution with a link to icons8.com; this file is that attributi
 
 Hosted copy: `https://upload.zaes.dev/i/tts-monster-icons-png/<file>` (uploaded with `format=png`, since the
 default WebP conversion does not load in TTS UI images). `ICON_BASE` in `monster_ui.lua` points there.
+
+## Player panel (`assets/icons/player/`)
+
+`hp`, `stress` (flame), `sun` (hope) and `armor` filled/empty pairs used by `src/modules/player_injector.lua`.
+Hosted at `https://upload.zaes.dev/i/tts-player-icons/<file>`. The previous player injector is kept in `src/deprecated/`.
