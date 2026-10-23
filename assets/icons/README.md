@@ -15,3 +15,6 @@ icons require attribution with a link to icons8.com; this file is that attributi
 | mon-bloodied | broken heart |
 | mon-restrained | anchor |
 | mon-hidden | hide |
+
+Hosted copy: `https://upload.zaes.dev/i/tts-monster-icons-png/<file>` (uploaded with `format=png`, since the
+default WebP conversion does not load in TTS UI images). `ICON_BASE` in `monster_ui.lua` points there.
