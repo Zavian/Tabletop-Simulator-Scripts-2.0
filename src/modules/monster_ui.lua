@@ -454,11 +454,15 @@ local function conditionsRowXml(plateHeight)
         .. table.concat(out) .. '</HorizontalLayout>'
 end
 
+-- Translucent backdrop behind the bars; only the GM sees them, so it can stay.
+local BACKDROP_PAD, BACKDROP_COLOR = 8, "#0B0C12B3"
+
 local function mainXml()
         local hpRow, hpHeight = barRow("hp", data.hp, data.maxHp, "decHPSmall", "decreaseHP", "incHPSmall", "increaseHP")
     local stressRow, stressHeight = barRow("stress", data.stress, data.maxStress, "decStressSmall", "decreaseStress", "incStressSmall", "increaseStress")
     local rowsHeight = hpHeight + stressHeight + ROW_GAP
     local plateHeight = math.max(BADGE_SIZE, rowsHeight)
+    local backdropHeight = plateHeight + 2 * BACKDROP_PAD
 
     return [[
         <Defaults>
@@ -469,7 +473,7 @@ local function mainXml()
             <Panel id="pivot" visibility="Black" active="]] .. tostring(data.showing) .. [[" offsetXY="0 0" scale="1 1 1" rotation="0 0 0">
                 <Panel visibility="Black" id="height">
                     <Panel id="container" visibility="Black" offsetXY="0 0" scale="1 1 1" rotation="-45 0 0">
-                        <HorizontalLayout id="plate" width="]] .. PLATE_WIDTH .. [[" height="]] .. plateHeight .. [[" offsetXY="0 ]] .. (plateHeight / 2) .. [[" spacing="]] .. BADGE_GAP .. [[" childForceExpandWidth="false" childForceExpandHeight="false" childAlignment="MiddleCenter">
+                        <HorizontalLayout id="plate" color="]] .. BACKDROP_COLOR .. [[" padding="]] .. BACKDROP_PAD .. " " .. BACKDROP_PAD .. " " .. BACKDROP_PAD .. " " .. BACKDROP_PAD .. [[" width="]] .. (PLATE_WIDTH + 2 * BACKDROP_PAD) .. [[" height="]] .. backdropHeight .. [[" offsetXY="0 ]] .. (backdropHeight / 2) .. [[" spacing="]] .. BADGE_GAP .. [[" childForceExpandWidth="false" childForceExpandHeight="false" childAlignment="MiddleCenter">
                             <Panel preferredWidth="]] .. BADGE_SIZE .. [[" preferredHeight="]] .. BADGE_SIZE .. [[">
                                 <Image image="]] .. icon("armor", "filled") .. [[" color="#0A0B10" preserveAspect="true" />
                                 <Image image="]] .. icon("armor", "empty") .. [[" preserveAspect="true" />
@@ -479,7 +483,7 @@ local function mainXml()
                                 ]] .. hpRow .. stressRow .. [[
                             </VerticalLayout>
                         </HorizontalLayout>
-                        ]] .. conditionsRowXml(plateHeight) .. [[
+                        ]] .. conditionsRowXml(backdropHeight) .. [[
                     </Panel>
                 </Panel>
             </Panel>
