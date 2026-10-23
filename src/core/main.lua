@@ -11,6 +11,7 @@ local promise = require('src.core.promise')
 local movement_measurement = require('src.core.movement_measurement')
 local flying = require('src.core.flying')
 local board_mirror = require('src.core.board_mirror')
+local garden = require('src.core.garden')
 
 -- Load UI Manager
 
@@ -203,3 +204,4 @@ end
 -- Modules that hook Global's events themselves. Called last, so the handlers
 -- above already exist and get chained rather than replaced.
 board_mirror.attach()
+garden.attach()
